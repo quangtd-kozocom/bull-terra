@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { Db } from "../../core/db.js";
+import { resolvePlaywrightCli } from "../../core/playwright.js";
 import { c, resolvePaths, templatesDir } from "../util.js";
 
 export interface InitFlags {
@@ -31,6 +32,7 @@ function ensureGitignore(root: string): void {
     "data.db",
     "data.db-*",
     ".env",
+    "auth/",
     "auth.json",
     "recordings/",
     "test-results/",
@@ -97,13 +99,14 @@ export function initCommand(flags: InitFlags): void {
     skip("skipped Chromium install (--no-browser)");
   } else {
     console.log(c.dim("\n  Installing Chromium for Playwright…"));
-    const r = spawnSync("npx", ["playwright", "install", "chromium"], {
+    const cli = resolvePlaywrightCli(paths.root);
+    const r = spawnSync(cli.command, [...cli.prefix, "install", "chromium"], {
       cwd: paths.root,
       stdio: "inherit",
       shell: process.platform === "win32",
     });
     if (r.status === 0) ok("Chromium installed");
-    else console.log(c.yellow("  ! Chromium install failed — run `npx playwright install chromium` manually."));
+    else console.log(c.yellow("  ! Chromium install failed — run `bull-terra install-browsers` manually."));
   }
 
   printNextSteps();
@@ -112,13 +115,16 @@ export function initCommand(flags: InitFlags): void {
 function printNextSteps(): void {
   console.log(`
 ${c.bold("Next steps")}
-  1. ${c.cyan("Register a project")}      bull-terra project add <name> <url> --sheet <sheetId>
-  2. ${c.cyan("Record a base flow")}      bull-terra record --project <name>
-  3. ${c.cyan("Set up Google Sheets MCP")} the /gen-tests skill reads test cases via the
+  1. ${c.cyan("Register a project")}      bull-terra project add <name>
+  2. ${c.cyan("Add environment(s)")}     bull-terra env add <name> stg <url> --default --user-var APP_STG_USER --pass-var APP_STG_PASS
+  3. ${c.cyan("Add feature(s)")}         bull-terra feature add <name> <feature> --sheet <sheetId>
+  4. ${c.cyan("Record a base flow")}     bull-terra record --project <name> --env stg
+  5. ${c.cyan("Set up Google Sheets MCP")} the /gen-tests skill reads test cases via the
      ${c.dim("kozocom-mcp / terra-mcp Google MCP. Authenticate it in Claude Code (OAuth);")}
      ${c.dim("bull-terra cannot provision your Google account for you.")}
-  4. ${c.cyan("Add credentials")}         copy .env.example → .env and fill APP_<X>_USER / APP_<X>_PASS
-  5. ${c.cyan("Generate tests")}          claude "/gen-tests <name> <feature>"
-  6. ${c.cyan("Open the dashboard")}      bull-terra serve
+  6. ${c.cyan("Add credentials")}         copy .env.example → .env and fill the per-env vars you named
+  7. ${c.cyan("Generate tests")}          claude "/gen-tests <name> <feature>"
+  8. ${c.cyan("Run the gate")}            bull-terra run --project <name> --env stg --all
+  9. ${c.cyan("Open the dashboard")}      bull-terra serve
 `);
 }

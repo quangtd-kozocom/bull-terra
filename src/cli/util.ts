@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Db } from "../core/db.js";
 import { findProjectRoot, projectPaths, type ProjectPaths } from "../core/paths.js";
-import type { GateVerdict, Project } from "../core/types.js";
+import type { Environment, GateVerdict, Project } from "../core/types.js";
 
 // ---- tiny ANSI helpers (no dependency) -----------------------------------
 const useColor = process.stdout.isTTY && !process.env.NO_COLOR;
@@ -31,19 +31,39 @@ export function resolveProject(db: Db, name?: string): Project {
     const p = db.getProjectByName(name);
     if (!p) {
       throw new CliError(
-        `No project named "${name}". Add it with: bull-terra project add ${name} <url>`,
+        `No project named "${name}". Add it with: bull-terra project add ${name}`,
       );
     }
     return p;
   }
   const all = db.listProjects();
   if (all.length === 0)
-    throw new CliError(`No projects registered. Add one with: bull-terra project add <name> <url>`);
+    throw new CliError(`No projects registered. Add one with: bull-terra project add <name>`);
   if (all.length > 1)
     throw new CliError(
       `Multiple projects exist (${all.map((p) => p.name).join(", ")}). Pass --project <name>.`,
     );
   return all[0];
+}
+
+/** Resolve an environment by name, or the project's default env when omitted. */
+export function resolveEnvironment(db: Db, project: Project, name?: string): Environment {
+  if (name) {
+    const env = db.getEnvironment(project.id, name);
+    if (!env)
+      throw new CliError(
+        `Project "${project.name}" has no environment "${name}". ` +
+          `Add it with: bull-terra env add ${project.name} ${name} <url>`,
+      );
+    return env;
+  }
+  const def = db.getDefaultEnvironment(project.id);
+  if (!def)
+    throw new CliError(
+      `Project "${project.name}" has no environments. ` +
+        `Add one with: bull-terra env add ${project.name} <name> <url>`,
+    );
+  return def;
 }
 
 /** Locates the package's bundled `templates/` dir in both dev (src) and built (dist) layouts. */

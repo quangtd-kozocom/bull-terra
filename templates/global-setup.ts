@@ -1,4 +1,5 @@
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
+import { dirname } from "node:path";
 import type { FullConfig } from "@playwright/test";
 
 /**
@@ -6,16 +7,20 @@ import type { FullConfig } from "@playwright/test";
  * (PRD decision #14 — login once, reuse storageState; secrets stay off-sheet
  * and off-git in .env).
  *
- * This is a TEMPLATE. Fill in your app's login flow. It writes auth.json and
- * points Playwright at it via BULL_TERRA_STORAGE_STATE.
+ * This is a TEMPLATE. Fill in your app's login flow. bull-terra injects, per
+ * environment:
+ *   BASE_URL                 the env's base URL
+ *   BULL_TERRA_USER / _PASS  resolved from the .env vars the env names
+ *   BULL_TERRA_STORAGE_STATE  auth/<project>-<env>.json (one session per env)
  *
- * Credentials come from .env (see .env.example): APP_<X>_USER / APP_<X>_PASS.
+ * So this file is env-agnostic: the same flow re-runs per target with the right
+ * URL, credentials, and storage-state path supplied from the outside.
  */
 async function globalSetup(_config: FullConfig): Promise<void> {
   const baseURL = process.env.BASE_URL;
-  const user = process.env.APP_USER;
-  const pass = process.env.APP_PASS;
-  const statePath = "auth.json";
+  const user = process.env.BULL_TERRA_USER;
+  const pass = process.env.BULL_TERRA_PASS;
+  const statePath = process.env.BULL_TERRA_STORAGE_STATE || "auth.json";
 
   // No credentials configured → run unauthenticated (fine for public flows).
   if (!baseURL || !user || !pass) {
@@ -35,6 +40,7 @@ async function globalSetup(_config: FullConfig): Promise<void> {
   // await page.waitForURL("**/dashboard");
   // ─────────────────────────────────────────────────────────────────────────
 
+  mkdirSync(dirname(statePath), { recursive: true });
   await page.context().storageState({ path: statePath });
   await browser.close();
   process.env.BULL_TERRA_STORAGE_STATE = statePath;

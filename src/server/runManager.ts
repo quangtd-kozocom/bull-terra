@@ -2,7 +2,7 @@ import type { Db } from "../core/db.js";
 import { executeRun } from "../core/engine.js";
 import { projectSpecsDir } from "../core/paths.js";
 import type { ProjectPaths } from "../core/paths.js";
-import type { Project, RunEvent } from "../core/types.js";
+import type { Environment, Project, RunEvent } from "../core/types.js";
 
 /**
  * v1 assumes one run at a time locally (PRD §12). The manager holds the single
@@ -25,6 +25,7 @@ export class RunManager {
     db: Db,
     paths: ProjectPaths,
     project: Project,
+    env: Environment,
     features: string[] | undefined,
     onEvent: (e: RunEvent) => void,
   ): Promise<void> {
@@ -41,7 +42,8 @@ export class RunManager {
       await executeRun({
         db,
         project,
-        projectRoot: paths.root,
+        env,
+        paths,
         specsDir: projectSpecsDir(paths, project.name),
         features,
         signal: controller.signal,

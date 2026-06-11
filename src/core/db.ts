@@ -4,6 +4,8 @@ import { dirname } from "node:path";
 import type {
   Baseline,
   BaselineStatus,
+  Environment,
+  Feature,
   ParsedTestResult,
   Project,
   Recording,
@@ -16,9 +18,31 @@ const SCHEMA = /* sql */ `
 CREATE TABLE IF NOT EXISTS projects (
   id        INTEGER PRIMARY KEY AUTOINCREMENT,
   name      TEXT NOT NULL UNIQUE,
-  url       TEXT NOT NULL,
-  sheet_id  TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- A deploy target the same app lives on (local / dev / stg / prod).
+-- user_var / pass_var name the .env vars that hold this env's login secrets.
+CREATE TABLE IF NOT EXISTS environments (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  name       TEXT NOT NULL,
+  url        TEXT NOT NULL,
+  user_var   TEXT,
+  pass_var   TEXT,
+  is_default INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(project_id, name)
+);
+
+-- A feature == one Google Sheet of test cases (1:1).
+CREATE TABLE IF NOT EXISTS features (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  name       TEXT NOT NULL,
+  sheet_id   TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(project_id, name)
 );
 
 CREATE TABLE IF NOT EXISTS recordings (
@@ -33,6 +57,7 @@ CREATE TABLE IF NOT EXISTS recordings (
 CREATE TABLE IF NOT EXISTS runs (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   project_id  INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  env_id      INTEGER NOT NULL REFERENCES environments(id) ON DELETE CASCADE,
   feature     TEXT,
   started_at  TEXT NOT NULL DEFAULT (datetime('now')),
   finished_at TEXT,
@@ -52,12 +77,14 @@ CREATE TABLE IF NOT EXISTS results (
 CREATE INDEX IF NOT EXISTS idx_results_run ON results(run_id);
 CREATE INDEX IF NOT EXISTS idx_results_test ON results(test_id);
 
+-- Baselines are per (project, env, test): "green on stg" is independent of "green on local".
 CREATE TABLE IF NOT EXISTS baselines (
   project_id        INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  env_id            INTEGER NOT NULL REFERENCES environments(id) ON DELETE CASCADE,
   test_id           TEXT NOT NULL,
   last_known_status TEXT NOT NULL,
   updated_at        TEXT NOT NULL DEFAULT (datetime('now')),
-  PRIMARY KEY (project_id, test_id)
+  PRIMARY KEY (project_id, env_id, test_id)
 );
 `;
 
@@ -65,7 +92,7 @@ export class Db {
   readonly raw: Database.Database;
 
   constructor(dbPath: string) {
-    mkdirSync(dirname(dbPath), { recursive: true });
+    if (dbPath !== ":memory:") mkdirSync(dirname(dbPath), { recursive: true });
     this.raw = new Database(dbPath);
     this.raw.pragma("journal_mode = WAL");
     this.raw.pragma("foreign_keys = ON");
@@ -78,22 +105,14 @@ export class Db {
 
   // ---- projects ----------------------------------------------------------
 
-  createProject(name: string, url: string, sheetId?: string | null): Project {
-    const info = this.raw
-      .prepare(`INSERT INTO projects (name, url, sheet_id) VALUES (?, ?, ?)`)
-      .run(name, url, sheetId ?? null);
+  createProject(name: string): Project {
+    const info = this.raw.prepare(`INSERT INTO projects (name) VALUES (?)`).run(name);
     return this.getProject(Number(info.lastInsertRowid))!;
   }
 
-  upsertProject(name: string, url: string, sheetId?: string | null): Project {
-    const existing = this.getProjectByName(name);
-    if (existing) {
-      this.raw
-        .prepare(`UPDATE projects SET url = ?, sheet_id = ? WHERE id = ?`)
-        .run(url, sheetId ?? existing.sheet_id, existing.id);
-      return this.getProject(existing.id)!;
-    }
-    return this.createProject(name, url, sheetId);
+  /** Create the project if missing; otherwise return the existing one (name is the identity). */
+  upsertProject(name: string): Project {
+    return this.getProjectByName(name) ?? this.createProject(name);
   }
 
   getProject(id: number): Project | undefined {
@@ -112,6 +131,131 @@ export class Db {
 
   deleteProject(id: number): void {
     this.raw.prepare(`DELETE FROM projects WHERE id = ?`).run(id);
+  }
+
+  // ---- environments ------------------------------------------------------
+
+  upsertEnvironment(
+    projectId: number,
+    name: string,
+    url: string,
+    opts: { userVar?: string | null; passVar?: string | null; isDefault?: boolean } = {},
+  ): Environment {
+    const existing = this.getEnvironment(projectId, name);
+    if (existing) {
+      this.raw
+        .prepare(`UPDATE environments SET url = ?, user_var = ?, pass_var = ? WHERE id = ?`)
+        .run(url, opts.userVar ?? existing.user_var, opts.passVar ?? existing.pass_var, existing.id);
+      if (opts.isDefault) this.setDefaultEnvironment(projectId, existing.id);
+      return this.getEnvironmentById(existing.id)!;
+    }
+    const info = this.raw
+      .prepare(
+        `INSERT INTO environments (project_id, name, url, user_var, pass_var) VALUES (?, ?, ?, ?, ?)`,
+      )
+      .run(projectId, name, url, opts.userVar ?? null, opts.passVar ?? null);
+    const id = Number(info.lastInsertRowid);
+    // First env for a project is the default; or honor an explicit request.
+    const count = (
+      this.raw.prepare(`SELECT COUNT(*) n FROM environments WHERE project_id = ?`).get(projectId) as {
+        n: number;
+      }
+    ).n;
+    if (opts.isDefault || count === 1) this.setDefaultEnvironment(projectId, id);
+    return this.getEnvironmentById(id)!;
+  }
+
+  getEnvironmentById(id: number): Environment | undefined {
+    return this.raw.prepare(`SELECT * FROM environments WHERE id = ?`).get(id) as
+      | Environment
+      | undefined;
+  }
+
+  getEnvironment(projectId: number, name: string): Environment | undefined {
+    return this.raw
+      .prepare(`SELECT * FROM environments WHERE project_id = ? AND name = ?`)
+      .get(projectId, name) as Environment | undefined;
+  }
+
+  listEnvironments(projectId: number): Environment[] {
+    return this.raw
+      .prepare(`SELECT * FROM environments WHERE project_id = ? ORDER BY is_default DESC, name`)
+      .all(projectId) as Environment[];
+  }
+
+  getDefaultEnvironment(projectId: number): Environment | undefined {
+    return (
+      (this.raw
+        .prepare(`SELECT * FROM environments WHERE project_id = ? AND is_default = 1`)
+        .get(projectId) as Environment | undefined) ??
+      (this.raw
+        .prepare(`SELECT * FROM environments WHERE project_id = ? ORDER BY id LIMIT 1`)
+        .get(projectId) as Environment | undefined)
+    );
+  }
+
+  setDefaultEnvironment(projectId: number, envId: number): void {
+    const tx = this.raw.transaction(() => {
+      this.raw.prepare(`UPDATE environments SET is_default = 0 WHERE project_id = ?`).run(projectId);
+      this.raw
+        .prepare(`UPDATE environments SET is_default = 1 WHERE id = ? AND project_id = ?`)
+        .run(envId, projectId);
+    });
+    tx();
+  }
+
+  deleteEnvironment(projectId: number, name: string): boolean {
+    const env = this.getEnvironment(projectId, name);
+    if (!env) return false;
+    const wasDefault = env.is_default === 1;
+    this.raw.prepare(`DELETE FROM environments WHERE id = ?`).run(env.id);
+    // Promote another env to default if we removed the default one.
+    if (wasDefault) {
+      const next = this.raw
+        .prepare(`SELECT id FROM environments WHERE project_id = ? ORDER BY id LIMIT 1`)
+        .get(projectId) as { id: number } | undefined;
+      if (next) this.setDefaultEnvironment(projectId, next.id);
+    }
+    return true;
+  }
+
+  // ---- features ----------------------------------------------------------
+
+  upsertFeature(projectId: number, name: string, sheetId?: string | null): Feature {
+    const existing = this.getFeature(projectId, name);
+    if (existing) {
+      this.raw
+        .prepare(`UPDATE features SET sheet_id = ? WHERE id = ?`)
+        .run(sheetId ?? existing.sheet_id, existing.id);
+      return this.getFeatureById(existing.id)!;
+    }
+    const info = this.raw
+      .prepare(`INSERT INTO features (project_id, name, sheet_id) VALUES (?, ?, ?)`)
+      .run(projectId, name, sheetId ?? null);
+    return this.getFeatureById(Number(info.lastInsertRowid))!;
+  }
+
+  getFeatureById(id: number): Feature | undefined {
+    return this.raw.prepare(`SELECT * FROM features WHERE id = ?`).get(id) as Feature | undefined;
+  }
+
+  getFeature(projectId: number, name: string): Feature | undefined {
+    return this.raw
+      .prepare(`SELECT * FROM features WHERE project_id = ? AND name = ?`)
+      .get(projectId, name) as Feature | undefined;
+  }
+
+  listFeatures(projectId: number): Feature[] {
+    return this.raw
+      .prepare(`SELECT * FROM features WHERE project_id = ? ORDER BY name`)
+      .all(projectId) as Feature[];
+  }
+
+  deleteFeature(projectId: number, name: string): boolean {
+    const info = this.raw
+      .prepare(`DELETE FROM features WHERE project_id = ? AND name = ?`)
+      .run(projectId, name);
+    return info.changes > 0;
   }
 
   // ---- recordings --------------------------------------------------------
@@ -140,10 +284,10 @@ export class Db {
 
   // ---- runs --------------------------------------------------------------
 
-  startRun(projectId: number, feature: string | null): Run {
+  startRun(projectId: number, envId: number, feature: string | null): Run {
     const info = this.raw
-      .prepare(`INSERT INTO runs (project_id, feature) VALUES (?, ?)`)
-      .run(projectId, feature);
+      .prepare(`INSERT INTO runs (project_id, env_id, feature) VALUES (?, ?, ?)`)
+      .run(projectId, envId, feature);
     return this.getRun(Number(info.lastInsertRowid))!;
   }
 
@@ -157,7 +301,13 @@ export class Db {
     return this.raw.prepare(`SELECT * FROM runs WHERE id = ?`).get(id) as Run | undefined;
   }
 
-  listRuns(projectId: number, limit = 50): Run[] {
+  listRuns(projectId: number, envId?: number, limit = 50): Run[] {
+    if (envId != null)
+      return this.raw
+        .prepare(
+          `SELECT * FROM runs WHERE project_id = ? AND env_id = ? ORDER BY started_at DESC LIMIT ?`,
+        )
+        .all(projectId, envId, limit) as Run[];
     return this.raw
       .prepare(`SELECT * FROM runs WHERE project_id = ? ORDER BY started_at DESC LIMIT ?`)
       .all(projectId, limit) as Run[];
@@ -180,58 +330,58 @@ export class Db {
       .all(runId) as Result[];
   }
 
-  /** Latest known result per test for a project (most recent run wins). */
-  latestResultsByTest(projectId: number): Map<string, Result> {
+  /** Latest known result per test for a project+env (most recent run wins). */
+  latestResultsByTest(projectId: number, envId: number): Map<string, Result> {
     const rows = this.raw
       .prepare(
         `SELECT r.* FROM results r
          JOIN runs ru ON ru.id = r.run_id
-         WHERE ru.project_id = ?
+         WHERE ru.project_id = ? AND ru.env_id = ?
          ORDER BY r.id DESC`,
       )
-      .all(projectId) as Result[];
+      .all(projectId, envId) as Result[];
     const map = new Map<string, Result>();
     for (const row of rows) if (!map.has(row.test_id)) map.set(row.test_id, row);
     return map;
   }
 
-  /** Status history for a single test (newest first), used for flaky detection. */
-  statusHistory(projectId: number, testId: string, limit = 10): string[] {
+  /** Status history for a single test on one env (newest first), used for flaky detection. */
+  statusHistory(projectId: number, envId: number, testId: string, limit = 10): string[] {
     return (
       this.raw
         .prepare(
           `SELECT r.status FROM results r
            JOIN runs ru ON ru.id = r.run_id
-           WHERE ru.project_id = ? AND r.test_id = ?
+           WHERE ru.project_id = ? AND ru.env_id = ? AND r.test_id = ?
            ORDER BY r.id DESC LIMIT ?`,
         )
-        .all(projectId, testId, limit) as { status: string }[]
+        .all(projectId, envId, testId, limit) as { status: string }[]
     ).map((x) => x.status);
   }
 
   // ---- baselines ---------------------------------------------------------
 
-  getBaseline(projectId: number, testId: string): Baseline | undefined {
+  getBaseline(projectId: number, envId: number, testId: string): Baseline | undefined {
     return this.raw
-      .prepare(`SELECT * FROM baselines WHERE project_id = ? AND test_id = ?`)
-      .get(projectId, testId) as Baseline | undefined;
+      .prepare(`SELECT * FROM baselines WHERE project_id = ? AND env_id = ? AND test_id = ?`)
+      .get(projectId, envId, testId) as Baseline | undefined;
   }
 
-  listBaselines(projectId: number): Baseline[] {
+  listBaselines(projectId: number, envId: number): Baseline[] {
     return this.raw
-      .prepare(`SELECT * FROM baselines WHERE project_id = ?`)
-      .all(projectId) as Baseline[];
+      .prepare(`SELECT * FROM baselines WHERE project_id = ? AND env_id = ?`)
+      .all(projectId, envId) as Baseline[];
   }
 
-  setBaseline(projectId: number, testId: string, status: BaselineStatus): void {
+  setBaseline(projectId: number, envId: number, testId: string, status: BaselineStatus): void {
     this.raw
       .prepare(
-        `INSERT INTO baselines (project_id, test_id, last_known_status, updated_at)
-         VALUES (?, ?, ?, datetime('now'))
-         ON CONFLICT(project_id, test_id)
+        `INSERT INTO baselines (project_id, env_id, test_id, last_known_status, updated_at)
+         VALUES (?, ?, ?, ?, datetime('now'))
+         ON CONFLICT(project_id, env_id, test_id)
          DO UPDATE SET last_known_status = excluded.last_known_status, updated_at = datetime('now')`,
       )
-      .run(projectId, testId, status);
+      .run(projectId, envId, testId, status);
   }
 }
 

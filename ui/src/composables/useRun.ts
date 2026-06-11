@@ -32,6 +32,7 @@ export function useRun() {
   function start(
     projectName: string,
     feature: string | undefined,
+    env: string | undefined,
     knownTitles: string[],
     onEnd?: () => void,
   ) {
@@ -45,7 +46,7 @@ export function useRun() {
     state.verdict = null;
     state.finishedStatus = null;
 
-    state.dispose = streamRun(projectName, feature, (e: RunEvent) => handle(e, onEnd));
+    state.dispose = streamRun(projectName, feature, env, (e: RunEvent) => handle(e, onEnd));
   }
 
   function handle(e: RunEvent, onEnd?: () => void) {

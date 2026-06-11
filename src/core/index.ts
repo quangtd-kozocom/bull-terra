@@ -3,6 +3,7 @@ export * from "./types.js";
 export * from "./paths.js";
 export * from "./db.js";
 export * from "./discover.js";
+export * from "./playwright.js";
 export * from "./runner.js";
 export * from "./gate.js";
 export * from "./engine.js";

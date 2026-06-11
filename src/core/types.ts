@@ -2,10 +2,36 @@
 
 export type TestStatus = "passed" | "failed" | "skipped" | "timedOut" | "interrupted";
 
+/** A project is just a named container; URLs live on environments, sheets on features. */
 export interface Project {
   id: number;
   name: string;
+  created_at: string;
+}
+
+/**
+ * A target the same app is deployed to (local / dev / stg / prod). Holds the base
+ * URL and the *names* of the .env vars that supply this env's login credentials,
+ * so secrets never touch the DB. Exactly one env per project is the `is_default`.
+ */
+export interface Environment {
+  id: number;
+  project_id: number;
+  name: string;
   url: string;
+  /** Name of the .env var holding the username, e.g. "APP_A_STG_USER" (or null = unauthenticated). */
+  user_var: string | null;
+  /** Name of the .env var holding the password. */
+  pass_var: string | null;
+  is_default: 0 | 1;
+  created_at: string;
+}
+
+/** A unit of work backed by its own Google Sheet of test cases (1:1 sheet = feature). */
+export interface Feature {
+  id: number;
+  project_id: number;
+  name: string;
   sheet_id: string | null;
   created_at: string;
 }
@@ -23,6 +49,7 @@ export type RunStatus = "running" | "passed" | "failed" | "error" | "stopped";
 export interface Run {
   id: number;
   project_id: number;
+  env_id: number;
   feature: string | null;
   started_at: string;
   finished_at: string | null;
@@ -42,8 +69,10 @@ export interface Result {
 
 export type BaselineStatus = "passed" | "failed";
 
+/** Baselines are keyed per environment so "green on stg" and "green on local" are tracked apart. */
 export interface Baseline {
   project_id: number;
+  env_id: number;
   test_id: string;
   last_known_status: BaselineStatus;
   updated_at: string;
@@ -92,6 +121,6 @@ export type RunnerEvent =
 
 /** Everything streamed over SSE while a run is in flight. */
 export type RunEvent =
-  | { type: "run-start"; runId: number; feature: string | null }
+  | { type: "run-start"; runId: number; feature: string | null; env: string }
   | RunnerEvent
   | { type: "run-end"; runId: number; verdict: GateVerdict; status: RunStatus };

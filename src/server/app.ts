@@ -8,6 +8,7 @@ import { streamSSE } from "hono/streaming";
 import { Db } from "../core/db.js";
 import { discoverFeatures } from "../core/discover.js";
 import { projectRecordingsDir, projectSpecsDir, type ProjectPaths } from "../core/paths.js";
+import { chromiumInstalled, resolvePlaywrightCli } from "../core/playwright.js";
 import type { RunEvent } from "../core/types.js";
 import { RunManager } from "./runManager.js";
 import { buildProjectView } from "./views.js";
@@ -45,15 +46,15 @@ export function createApp(opts: ServerOptions): Hono {
   );
 
   app.post("/api/projects", async (c) => {
-    const body = await c.req.json<{ name: string; url: string; sheetId?: string }>();
-    if (!body?.name || !body?.url) return c.json({ error: "name and url are required" }, 400);
-    return c.json(db.upsertProject(body.name, body.url, body.sheetId ?? null));
+    const body = await c.req.json<{ name: string }>();
+    if (!body?.name) return c.json({ error: "name is required" }, 400);
+    return c.json(buildProjectView(db, paths, db.upsertProject(body.name)));
   });
 
   app.get("/api/projects/:name", (c) => {
     const p = getProjectOr404(c.req.param("name"));
     if (!p) return c.json({ error: "not found" }, 404);
-    return c.json(buildProjectView(db, paths, p));
+    return c.json(buildProjectView(db, paths, p, c.req.query("env")));
   });
 
   app.delete("/api/projects/:name", (c) => {
@@ -61,6 +62,55 @@ export function createApp(opts: ServerOptions): Hono {
     if (!p) return c.json({ error: "not found" }, 404);
     db.deleteProject(p.id);
     return c.json({ ok: true });
+  });
+
+  // ---- environments ------------------------------------------------------
+  app.post("/api/projects/:name/environments", async (c) => {
+    const p = getProjectOr404(c.req.param("name"));
+    if (!p) return c.json({ error: "not found" }, 404);
+    const body = await c.req
+      .json<{ name: string; url: string; userVar?: string; passVar?: string; isDefault?: boolean }>()
+      .catch(() => null);
+    if (!body?.name || !body?.url) return c.json({ error: "name and url are required" }, 400);
+    db.upsertEnvironment(p.id, body.name, body.url, {
+      userVar: body.userVar ?? null,
+      passVar: body.passVar ?? null,
+      isDefault: body.isDefault,
+    });
+    return c.json(buildProjectView(db, paths, p, body.name));
+  });
+
+  app.put("/api/projects/:name/environments/:env/default", (c) => {
+    const p = getProjectOr404(c.req.param("name"));
+    if (!p) return c.json({ error: "not found" }, 404);
+    const env = db.getEnvironment(p.id, c.req.param("env"));
+    if (!env) return c.json({ error: "no such environment" }, 404);
+    db.setDefaultEnvironment(p.id, env.id);
+    return c.json(buildProjectView(db, paths, p, env.name));
+  });
+
+  app.delete("/api/projects/:name/environments/:env", (c) => {
+    const p = getProjectOr404(c.req.param("name"));
+    if (!p) return c.json({ error: "not found" }, 404);
+    db.deleteEnvironment(p.id, c.req.param("env"));
+    return c.json(buildProjectView(db, paths, p));
+  });
+
+  // ---- features ----------------------------------------------------------
+  app.post("/api/projects/:name/features", async (c) => {
+    const p = getProjectOr404(c.req.param("name"));
+    if (!p) return c.json({ error: "not found" }, 404);
+    const body = await c.req.json<{ name: string; sheetId?: string }>().catch(() => null);
+    if (!body?.name) return c.json({ error: "name is required" }, 400);
+    db.upsertFeature(p.id, body.name, body.sheetId ?? null);
+    return c.json(buildProjectView(db, paths, p));
+  });
+
+  app.delete("/api/projects/:name/features/:feature", (c) => {
+    const p = getProjectOr404(c.req.param("name"));
+    if (!p) return c.json({ error: "not found" }, 404);
+    db.deleteFeature(p.id, c.req.param("feature"));
+    return c.json(buildProjectView(db, paths, p));
   });
 
   app.get("/api/projects/:name/runs/:runId", (c) => {
@@ -79,6 +129,9 @@ export function createApp(opts: ServerOptions): Hono {
   app.get("/api/projects/:name/run", (c) => {
     const p = getProjectOr404(c.req.param("name"));
     if (!p) return c.json({ error: "not found" }, 404);
+    const envName = c.req.query("env");
+    const env = envName ? db.getEnvironment(p.id, envName) : db.getDefaultEnvironment(p.id);
+    if (!env) return c.json({ error: "no environment to run against" }, 400);
     const featureParam = c.req.query("feature");
     const specsDir = projectSpecsDir(paths, p.name);
     const features = featureParam ? [featureParam] : discoverFeatures(specsDir);
@@ -90,7 +143,7 @@ export function createApp(opts: ServerOptions): Hono {
       stream.onAbort(() => {
         runs.stop();
       });
-      await runs.run(db, paths, p, features.length ? features : undefined, send);
+      await runs.run(db, paths, p, env, features.length ? features : undefined, send);
     });
   });
 
@@ -100,24 +153,51 @@ export function createApp(opts: ServerOptions): Hono {
   app.post("/api/projects/:name/record", async (c) => {
     const p = getProjectOr404(c.req.param("name"));
     if (!p) return c.json({ error: "not found" }, 404);
-    const body = await c.req.json<{ name?: string; url?: string }>().catch(() => ({}) as Record<string, never>);
+    const body = await c.req
+      .json<{ name?: string; url?: string; env?: string }>()
+      .catch(() => ({}) as Record<string, never>);
+
+    // Preflight: codegen can't open a browser that isn't installed.
+    if (!chromiumInstalled())
+      return c.json(
+        { error: "Chromium isn't installed. Run `bull-terra install-browsers` in your terminal." },
+        400,
+      );
+
+    const env = body?.env ? db.getEnvironment(p.id, body.env) : db.getDefaultEnvironment(p.id);
+    if (!env && !body?.url)
+      return c.json({ error: "no environment to record against — add one first" }, 400);
+
     const recName = body?.name || "base";
-    const url = body?.url || p.url;
+    const url = body?.url || env!.url;
     const dir = projectRecordingsDir(paths, p.name);
     mkdirSync(dir, { recursive: true });
     const outPath = join(dir, `${recName}.ts`);
+    const cli = resolvePlaywrightCli(paths.root);
 
-    await new Promise<void>((resolve) => {
+    const result = await new Promise<{ ok: boolean; err: string }>((resolve) => {
+      let stderr = "";
       const child = spawn(
-        "npx",
-        ["playwright", "codegen", url, "--output", outPath, "--target", "playwright-test"],
-        { cwd: paths.root, stdio: "ignore", shell: process.platform === "win32" },
+        cli.command,
+        [...cli.prefix, "codegen", url, "--output", outPath, "--target", "playwright-test"],
+        { cwd: paths.root, shell: process.platform === "win32" },
       );
-      child.on("error", () => resolve());
-      child.on("close", () => resolve());
+      child.stderr?.on("data", (d: Buffer) => {
+        stderr += d.toString();
+      });
+      child.on("error", (e) => resolve({ ok: false, err: e.message }));
+      child.on("close", () => resolve({ ok: existsSync(outPath), err: stderr.trim() }));
     });
 
-    if (!existsSync(outPath)) return c.json({ error: "no recording saved" }, 400);
+    if (!result.ok)
+      return c.json(
+        {
+          error:
+            result.err.split("\n").slice(-4).join("\n") ||
+            "codegen closed without saving a recording",
+        },
+        400,
+      );
     const rec = db.addRecording(p.id, recName, outPath);
     return c.json(rec);
   });
@@ -127,7 +207,8 @@ export function createApp(opts: ServerOptions): Hono {
     const body = await c.req.json<{ path: string }>();
     const abs = join(paths.root, body.path);
     if (!existsSync(abs)) return c.json({ error: "trace not found" }, 404);
-    spawn("npx", ["playwright", "show-trace", abs], {
+    const cli = resolvePlaywrightCli(paths.root);
+    spawn(cli.command, [...cli.prefix, "show-trace", abs], {
       cwd: paths.root,
       stdio: "ignore",
       detached: true,

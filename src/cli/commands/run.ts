@@ -2,24 +2,35 @@ import { executeRun } from "../../core/engine.js";
 import { discoverFeatures } from "../../core/discover.js";
 import { projectSpecsDir } from "../../core/paths.js";
 import { buildWriteback, writeWritebackFile } from "../../core/writeback.js";
-import { c, CliError, openDb, printVerdict, resolvePaths, resolveProject } from "../util.js";
+import {
+  c,
+  CliError,
+  openDb,
+  printVerdict,
+  resolveEnvironment,
+  resolvePaths,
+  resolveProject,
+} from "../util.js";
 
 export interface RunFlags {
   all?: boolean;
   project?: string;
+  env?: string;
   feature?: string;
   writeback?: boolean;
 }
 
 /**
  * The regression gate (PRD §7.2). Same engine as the dashboard.
- * Exits 1 ONLY when a previously-passing test now fails.
+ * Targets ONE environment (--env, or the project default) and exits 1 ONLY
+ * when a test that passed in THAT env's baseline now fails.
  */
 export async function runCommand(flags: RunFlags): Promise<void> {
   const paths = resolvePaths();
   const db = openDb(paths);
   try {
     const project = resolveProject(db, flags.project);
+    const env = resolveEnvironment(db, project, flags.env);
     const specsDir = projectSpecsDir(paths, project.name);
 
     let features: string[] | undefined;
@@ -34,14 +45,16 @@ export async function runCommand(flags: RunFlags): Promise<void> {
     }
 
     console.log(
-      `${c.bold("bull-terra")} running ${c.cyan(project.name)} ` +
+      `${c.bold("bull-terra")} running ${c.cyan(`${project.name}/${env.name}`)} ` +
+        `${c.dim(`(${env.url})`)} ` +
         `${c.dim(features ? features.join(", ") : "(all features)")}`,
     );
 
     const { run, results, verdict } = await executeRun({
       db,
       project,
-      projectRoot: paths.root,
+      env,
+      paths,
       specsDir,
       features,
       onEvent: (e) => {
@@ -54,7 +67,14 @@ export async function runCommand(flags: RunFlags): Promise<void> {
     printVerdict(verdict);
 
     if (flags.writeback) {
-      const payload = buildWriteback(project, results, new Date().toISOString());
+      const featureSheet = new Map(db.listFeatures(project.id).map((f) => [f.name, f.sheet_id]));
+      const payload = buildWriteback(
+        project.name,
+        env.name,
+        results,
+        featureSheet,
+        new Date().toISOString(),
+      );
       const file = writeWritebackFile(paths.root, run.id, payload);
       console.log(
         c.dim(`  Wrote sheet write-back payload (${payload.rows.length} rows) → ${file}`),

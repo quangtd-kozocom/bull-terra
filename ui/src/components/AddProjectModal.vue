@@ -3,80 +3,58 @@ import { ref } from "vue";
 
 const emit = defineEmits<{
   (e: "close"): void;
-  (e: "create", body: { name: string; url: string; sheetId?: string }): void;
+  (e: "create", name: string): void;
 }>();
 
 const name = ref("");
-const url = ref("https://");
-const sheetId = ref("");
 const error = ref("");
 
 function submit() {
-  if (!name.value.trim() || !url.value.trim()) {
-    error.value = "Name and URL are required.";
+  if (!name.value.trim()) {
+    error.value = "A project name is required.";
     return;
   }
-  emit("create", {
-    name: name.value.trim(),
-    url: url.value.trim(),
-    sheetId: sheetId.value.trim() || undefined,
-  });
+  emit("create", name.value.trim());
 }
 </script>
 
 <template>
   <div
-    class="fixed inset-0 z-50 grid place-items-center bg-soil/80 backdrop-blur-sm"
+    class="fixed inset-0 z-50 grid place-items-center bg-ink/40 backdrop-blur-sm"
     @click.self="emit('close')"
   >
-    <div class="rise w-[440px] max-w-[92vw] rounded-lg border border-line-2 bg-panel p-6 shadow-2xl">
-      <h2 class="font-display text-xl font-extrabold text-parchment">Register project</h2>
-      <p class="mt-1 text-xs text-parchment-dim">
-        Each project has its own URL, sheet and recordings.
+    <div class="rise w-[440px] max-w-[92vw] rounded-md border border-line-strong bg-card p-6 shadow-2xl">
+      <h2 class="font-display text-xl font-bold text-ink">New project</h2>
+      <p class="mt-1 text-xs text-ink-2">
+        A project is a container. Add its environments (local / stg) and features
+        (one sheet each) next, from the project panel.
       </p>
 
-      <div class="mt-5 space-y-4">
-        <label class="block">
-          <span class="text-[11px] uppercase tracking-wider text-parchment-dim">name</span>
-          <input
-            v-model="name"
-            placeholder="app-a"
-            class="mt-1 w-full rounded-sm border border-line-2 bg-soil px-3 py-2 font-mono text-sm text-parchment outline-none focus:border-amber"
-          />
-        </label>
-        <label class="block">
-          <span class="text-[11px] uppercase tracking-wider text-parchment-dim">base url</span>
-          <input
-            v-model="url"
-            class="mt-1 w-full rounded-sm border border-line-2 bg-soil px-3 py-2 font-mono text-sm text-parchment outline-none focus:border-amber"
-          />
-        </label>
-        <label class="block">
-          <span class="text-[11px] uppercase tracking-wider text-parchment-dim"
-            >google sheet id <span class="normal-case opacity-60">(optional)</span></span
-          >
-          <input
-            v-model="sheetId"
-            placeholder="1aBcD…"
-            class="mt-1 w-full rounded-sm border border-line-2 bg-soil px-3 py-2 font-mono text-sm text-parchment outline-none focus:border-amber"
-          />
-        </label>
-      </div>
+      <label class="mt-5 block">
+        <span class="label text-ink-2">project name</span>
+        <input
+          v-model="name"
+          placeholder="app-a"
+          autofocus
+          class="mt-1.5 w-full rounded-sm border border-line-strong bg-paper px-3 py-2 font-mono text-sm text-ink outline-none focus:border-accent"
+          @keyup.enter="submit"
+        />
+      </label>
 
-      <p v-if="error" class="mt-3 text-xs text-alarm">{{ error }}</p>
+      <p v-if="error" class="mt-3 text-xs text-fail">{{ error }}</p>
 
       <div class="mt-6 flex justify-end gap-2">
         <button
-          class="rounded-sm border border-line-2 px-4 py-2 text-sm text-parchment-dim transition hover:text-parchment"
+          class="rounded-sm border border-line px-4 py-2 text-sm text-ink-2 transition hover:text-ink"
           @click="emit('close')"
         >
           cancel
         </button>
         <button
-          class="rounded-sm border border-amber/50 bg-amber/15 px-4 py-2 text-sm font-medium text-amber transition hover:bg-amber/25"
+          class="rounded-sm border border-accent bg-accent/12 px-4 py-2 text-sm font-medium text-accent transition hover:bg-accent/20"
           @click="submit"
         >
-          register
+          create
         </button>
       </div>
     </div>

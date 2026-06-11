@@ -8,6 +8,9 @@ import { serveCommand } from "./commands/serve.js";
 import { runCommand } from "./commands/run.js";
 import { recordCommand } from "./commands/record.js";
 import { projectAdd, projectList, projectRemove } from "./commands/project.js";
+import { envAdd, envDefault, envList, envRemove } from "./commands/env.js";
+import { featureAdd, featureList, featureRemove } from "./commands/feature.js";
+import { installBrowsersCommand } from "./commands/installBrowsers.js";
 
 // Load the installed project's .env so login secrets reach Playwright (PRD §14).
 loadEnv({ path: join(findProjectRoot(), ".env"), quiet: true });
@@ -44,6 +47,7 @@ program
   .description("Run generated specs through the regression-aware gate (exit 1 only on regressions)")
   .option("--all", "run every feature across the project")
   .option("--project <name>", "project to run (defaults to the only registered project)")
+  .option("--env <name>", "environment to run against (defaults to the project's default env)")
   .option("--feature <name>", "run a single feature (folder/file under tests/gen/<project>)")
   .option("--writeback", "emit a Google Sheet write-back payload for the MCP step")
   .action(async (flags) => runCommand(flags));
@@ -52,18 +56,45 @@ program
   .command("record")
   .description("Record a base navigation flow with `playwright codegen` (the selector source)")
   .option("--project <name>", "project to record for")
+  .option("--env <name>", "environment whose URL to open (defaults to the project's default env)")
   .option("--name <name>", "recording name (default: base)")
-  .option("--url <url>", "start URL (default: the project's url)")
+  .option("--url <url>", "start URL (default: the chosen environment's url)")
   .action(async (flags) => recordCommand(flags));
+
+program
+  .command("install-browsers")
+  .description("Install the Chromium build Playwright codegen/runs need")
+  .option("--force", "reinstall even if Chromium appears installed")
+  .action((flags) => installBrowsersCommand(flags));
 
 const project = program.command("project").description("Manage registered projects");
 project
-  .command("add <name> <url>")
+  .command("add <name>")
   .description("Register (or update) a project")
-  .option("--sheet <sheetId>", "Google Sheet id holding the test cases")
-  .action((name, url, flags) => projectAdd(name, url, flags));
-project.command("list").description("List registered projects").action(() => projectList());
+  .action((name) => projectAdd(name));
+project.command("list").description("List registered projects + their environments").action(() => projectList());
 project.command("rm <name>").description("Remove a project from the registry").action((name) => projectRemove(name));
+
+const env = program.command("env").description("Manage a project's environments (local / dev / stg …)");
+env
+  .command("add <project> <name> <url>")
+  .description("Add (or update) an environment for a project")
+  .option("--default", "make this the project's default environment")
+  .option("--user-var <name>", "name of the .env var holding this env's login username")
+  .option("--pass-var <name>", "name of the .env var holding this env's login password")
+  .action((projectName, name, url, flags) => envAdd(projectName, name, url, flags));
+env.command("list <project>").description("List a project's environments").action((p) => envList(p));
+env.command("default <project> <name>").description("Set the default environment").action((p, n) => envDefault(p, n));
+env.command("rm <project> <name>").description("Remove an environment").action((p, n) => envRemove(p, n));
+
+const feature = program.command("feature").description("Manage a project's features (one sheet each)");
+feature
+  .command("add <project> <name>")
+  .description("Add (or update) a feature backed by a Google Sheet")
+  .option("--sheet <sheetId>", "Google Sheet id holding this feature's test cases")
+  .action((projectName, name, flags) => featureAdd(projectName, name, flags));
+feature.command("list <project>").description("List a project's features").action((p) => featureList(p));
+feature.command("rm <project> <name>").description("Remove a feature").action((p, n) => featureRemove(p, n));
 
 async function main(): Promise<void> {
   try {

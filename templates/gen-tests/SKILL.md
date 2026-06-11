@@ -13,15 +13,20 @@ Invocation: `/gen-tests <project> <feature>` (e.g. `/gen-tests app-a checkout`).
 
 ## Inputs you must gather first
 
-1. **The project record.** Read `data.db` (SQLite) in the project root:
-   - `SELECT id, name, url, sheet_id FROM projects WHERE name = '<project>';`
+1. **The project + feature records.** Read `data.db` (SQLite) in the project root:
+   - `SELECT id FROM projects WHERE name = '<project>';`
+   - `SELECT name, sheet_id FROM features WHERE project_id = <id> AND name = '<feature>';`
+   - `SELECT name, url, is_default FROM environments WHERE project_id = <id>;`
    - `SELECT name, path FROM recordings WHERE project_id = <id>;`
-   If the project or a recording is missing, STOP and tell the user to
-   `bull-terra project add …` / `bull-terra record …` first.
+   If the project, the feature row, or a recording is missing, STOP and tell the
+   user to `bull-terra project add …` / `bull-terra feature add … --sheet <id>` /
+   `bull-terra record …` first. A project now has MANY environments (each a base
+   URL) and MANY features (each with its own sheet) — do NOT assume one of each.
 
-2. **The test cases from the Google Sheet.** Use the Google Sheets MCP
-   (`terra-mcp` / `kozocom-mcp`) to read the rows for `<feature>` from the sheet
-   `sheet_id`. Each row is a test case with at least: a **TC id** (e.g. `TC-01`), a
+2. **The test cases from the feature's Google Sheet.** Use the Google Sheets MCP
+   (`terra-mcp` / `kozocom-mcp`) to read the rows from the **feature's own
+   `sheet_id`** (1:1 sheet = feature — never the "project sheet"; there isn't one).
+   Each row is a test case with at least: a **TC id** (e.g. `TC-01`), a
    **title/description**, **steps**, and an **expected result**. If the MCP is not
    authenticated, STOP and point the user at `bull-terra init`'s MCP instructions.
 
@@ -48,16 +53,27 @@ keep helpers stable so other features keep importing them.
 - Import and call the helpers for navigation/setup.
 - The **assertions come straight from the sheet's "expected result"**. Encode them
   faithfully as `expect(...)`.
+- **Make specs environment-portable.** The same spec runs against every
+  environment (local / dev / stg), so:
+  - NEVER hardcode a host. Use **relative** navigation — `await page.goto('/')`,
+    `page.goto('/checkout')` — and let Playwright's `baseURL` (injected per env as
+    `BASE_URL`) resolve it. Strip the absolute origin the recording captured.
+  - NEVER inline credentials. The logged-in session is provided via
+    `storageState` (captured once per env by `global-setup.ts` from
+    `BULL_TERRA_USER` / `BULL_TERRA_PASS`). If a spec must type credentials, read
+    them from `process.env.BULL_TERRA_USER` / `process.env.BULL_TERRA_PASS` — do
+    not paste the values the recording captured.
 
 ## The fix loop (bounded) — selectors/waits ONLY
 
-After writing the specs, run them:
+After writing the specs, run them against an environment (default env if `--env`
+is omitted):
 
 ```
-bull-terra run --project <project> --feature <feature>
+bull-terra run --project <project> --env <env> --feature <feature>
 ```
 
-(or `npx playwright test tests/gen/<project>/<feature>.spec.ts`)
+(or `BASE_URL=<env-url> npx playwright test tests/gen/<project>/<feature>.spec.ts`)
 
 When a test fails, read the trace/error and classify the failure:
 
@@ -90,3 +106,5 @@ STOP and report what you tried.
 3. One flat `test('TC-xx: …')` per sheet row; no `describe` nesting.
 4. On an assertion failure, STOP and report — don't keep "fixing".
 5. Don't delete a spec because its sheet row vanished — flag the orphan instead.
+6. Never hardcode a host or credentials — relative URLs + `BASE_URL`/storageState
+   keep one spec runnable across every environment.

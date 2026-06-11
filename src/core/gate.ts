@@ -33,6 +33,7 @@ export interface GateOptions {
 export function evaluateGate(
   db: Db,
   projectId: number,
+  envId: number,
   results: ParsedTestResult[],
   opts: GateOptions = {},
 ): GateVerdict {
@@ -44,19 +45,19 @@ export function evaluateGate(
   for (const r of results) {
     if (isPass(r.status)) {
       passed.push(r);
-      if (opts.updateBaselines) db.setBaseline(projectId, r.testId, "passed");
+      if (opts.updateBaselines) db.setBaseline(projectId, envId, r.testId, "passed");
       continue;
     }
     if (r.status === "skipped") continue;
 
     // Failing test. Quarantine if its history says it's flaky.
-    const history = db.statusHistory(projectId, r.testId);
+    const history = db.statusHistory(projectId, envId, r.testId);
     if (history.length >= 4 && isFlaky([r.status, ...history])) {
       quarantined.push(r);
       continue;
     }
 
-    const baseline = db.getBaseline(projectId, r.testId);
+    const baseline = db.getBaseline(projectId, envId, r.testId);
     if (baseline?.last_known_status === "passed") {
       regressions.push(r); // was green, now red → real regression
     } else {

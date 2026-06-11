@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { makeTestId } from "./discover.js";
+import { resolvePlaywrightCli } from "./playwright.js";
 import type { ParsedTestResult, RunnerEvent, TestStatus } from "./types.js";
 
 export interface RunOptions {
@@ -13,8 +14,8 @@ export interface RunOptions {
   /** Per-event callback for live SSE streaming. */
   onEvent?: (e: RunnerEvent) => void;
   signal?: AbortSignal;
-  /** Override the binary used to run Playwright (default: `npx`). */
-  bin?: string;
+  /** Extra env vars injected into the Playwright process (BASE_URL, creds, storageState…). */
+  extraEnv?: Record<string, string | undefined>;
 }
 
 export interface RunOutcome {
@@ -40,11 +41,12 @@ function symbolToStatus(sym: string): TestStatus {
  * parsed per-test results from the JSON reporter.
  */
 export function runSpecs(opts: RunOptions): Promise<RunOutcome> {
-  const { projectRoot, specsDir, features, onEvent, signal, bin = "npx" } = opts;
+  const { projectRoot, specsDir, features, onEvent, signal, extraEnv } = opts;
   const jsonDir = mkdtempSync(join(tmpdir(), "bull-terra-"));
   const jsonPath = join(jsonDir, "report.json");
 
-  const args = ["playwright", "test", "--reporter=list,json"];
+  const cli = resolvePlaywrightCli(projectRoot);
+  const args = [...cli.prefix, "test", "--reporter=list,json"];
   if (features && features.length > 0) {
     // Map each feature to its spec file; Playwright treats positional args as path filters.
     for (const f of features) args.push(join(specsDir, `${f}.spec.ts`));
@@ -61,9 +63,14 @@ export function runSpecs(opts: RunOptions): Promise<RunOutcome> {
     };
     signal?.addEventListener("abort", onAbort, { once: true });
 
-    child = spawn(bin, args, {
+    child = spawn(cli.command, args, {
       cwd: projectRoot,
-      env: { ...process.env, PLAYWRIGHT_JSON_OUTPUT_NAME: jsonPath, FORCE_COLOR: "0" },
+      env: {
+        ...process.env,
+        ...extraEnv,
+        PLAYWRIGHT_JSON_OUTPUT_NAME: jsonPath,
+        FORCE_COLOR: "0",
+      },
       shell: process.platform === "win32",
     });
 

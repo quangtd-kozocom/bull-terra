@@ -27,7 +27,8 @@ export interface ProjectPaths {
   recordingsDir: string;
   specsDir: string;
   tracesDir: string;
-  authStatePath: string;
+  /** Directory holding per-(project,env) storage-state files. */
+  authDir: string;
   envPath: string;
   envExamplePath: string;
   playwrightConfig: string;
@@ -41,12 +42,22 @@ export function projectPaths(root: string = findProjectRoot()): ProjectPaths {
     recordingsDir: join(root, "recordings"),
     specsDir: join(root, "tests", "gen"),
     tracesDir: join(root, "test-results"),
-    authStatePath: join(root, "auth.json"),
+    authDir: join(root, "auth"),
     envPath: join(root, ".env"),
     envExamplePath: join(root, ".env.example"),
     playwrightConfig: join(root, "playwright.config.ts"),
     skillsDir: join(root, ".claude", "skills"),
   };
+}
+
+/** auth/<project>-<env>.json — the logged-in storageState for one target. */
+export function envAuthStatePath(
+  paths: ProjectPaths,
+  projectName: string,
+  envName: string,
+): string {
+  const safe = (s: string) => s.replace(/[^a-zA-Z0-9._-]/g, "_");
+  return join(paths.authDir, `${safe(projectName)}-${safe(envName)}.json`);
 }
 
 /** recordings/<project>/ */
