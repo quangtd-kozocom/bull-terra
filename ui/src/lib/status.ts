@@ -20,6 +20,10 @@ export function look(status: string): StatusLook {
       return { color: "var(--color-ink-3)", glyph: "○", label: "queued" };
     case "skipped":
       return { color: "var(--color-ink-3)", glyph: "–", label: "skipped" };
+    case "error":
+      return { color: "var(--color-fail)", glyph: "✕", label: "error" };
+    case "stopped":
+      return { color: "var(--color-ink-3)", glyph: "■", label: "stopped" };
     case "never-run":
       return { color: "var(--color-ink-3)", glyph: "○", label: "not run" };
     default:

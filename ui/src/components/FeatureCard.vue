@@ -7,6 +7,7 @@ import Menu from "primevue/menu";
 import type { MenuItem } from "primevue/menuitem";
 import type { FeatureView, RecordingView } from "../types";
 import { healthColor, isRegression, look } from "../lib/status";
+import HistorySparkline from "./HistorySparkline.vue";
 
 const props = defineProps<{
   feature: FeatureView;
@@ -315,10 +316,19 @@ function recordNamed() {
             <span class="min-w-0 flex-1 truncate text-ink">{{ t.title }}</span>
 
             <span
+              v-if="t.flaky"
+              class="shrink-0 rounded-sm bg-flaky/15 px-1.5 py-0.5 font-mono text-[10px] font-bold text-flaky"
+              v-tooltip.top="'Recent results flip between pass and fail — failures are quarantined from the regression gate'"
+              >FLAKY</span
+            >
+
+            <span
               v-if="isRegression({ status: statusOf(t.title, t.status), baseline: t.baseline })"
               class="shrink-0 rounded-sm bg-fail/15 px-1.5 py-0.5 font-mono text-[10px] font-bold text-fail"
               >REGRESSION</span
             >
+
+            <HistorySparkline v-if="t.history.length > 1" class="shrink-0" :history="t.history" />
 
             <span v-if="t.durationMs != null" class="tnum shrink-0 font-mono text-[11px] text-ink-3">
               {{ (t.durationMs / 1000).toFixed(1) }}s

@@ -28,6 +28,8 @@ import type {
   Result,
   Run,
   RunStatus,
+  RunSummary,
+  TestHistoryEntry,
 } from "./types.js";
 
 /**
@@ -424,6 +426,29 @@ export class Db {
       .all();
   }
 
+  /** Recent runs with per-run result tallies (newest first), for the history timeline. */
+  listRunSummaries(projectId: number, envId: number, limit = 30): RunSummary[] {
+    return this.db
+      .select({
+        id: runs.id,
+        feature: runs.feature,
+        status: runs.status,
+        started_at: runs.started_at,
+        finished_at: runs.finished_at,
+        passed: sql<number>`coalesce(sum(${results.status} = 'passed'), 0)`,
+        failed: sql<number>`coalesce(sum(${results.status} IN ('failed','timedOut','interrupted')), 0)`,
+        skipped: sql<number>`coalesce(sum(${results.status} = 'skipped'), 0)`,
+        duration_ms: sql<number>`coalesce(sum(${results.duration_ms}), 0)`,
+      })
+      .from(runs)
+      .leftJoin(results, eq(results.run_id, runs.id))
+      .where(and(eq(runs.project_id, projectId), eq(runs.env_id, envId)))
+      .groupBy(runs.id)
+      .orderBy(desc(runs.started_at), desc(runs.id))
+      .limit(limit)
+      .all();
+  }
+
   // ---- results -----------------------------------------------------------
 
   recordResult(runId: number, r: ParsedTestResult): void {
@@ -456,6 +481,41 @@ export class Db {
       .all();
     const map = new Map<string, Result>();
     for (const { r } of rows) if (!map.has(r.test_id)) map.set(r.test_id, r);
+    return map;
+  }
+
+  /**
+   * Recent result history for EVERY test on one env in a single query (newest
+   * first, capped per test). Same scan as latestResultsByTest, richer payload —
+   * feeds the per-test sparklines and the dashboard's flaky flag.
+   */
+  historiesByTest(projectId: number, envId: number, perTest = 10): Map<string, TestHistoryEntry[]> {
+    const rows = this.db
+      .select({
+        test_id: results.test_id,
+        status: results.status,
+        duration_ms: results.duration_ms,
+        run_id: results.run_id,
+        started_at: runs.started_at,
+      })
+      .from(results)
+      .innerJoin(runs, eq(runs.id, results.run_id))
+      .where(and(eq(runs.project_id, projectId), eq(runs.env_id, envId)))
+      .orderBy(desc(results.id))
+      .all();
+    const map = new Map<string, TestHistoryEntry[]>();
+    for (const row of rows) {
+      let list = map.get(row.test_id);
+      if (!list) map.set(row.test_id, (list = []));
+      if (list.length < perTest) {
+        list.push({
+          runId: row.run_id,
+          status: row.status,
+          durationMs: row.duration_ms,
+          at: row.started_at,
+        });
+      }
+    }
     return map;
   }
 

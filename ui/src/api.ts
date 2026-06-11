@@ -5,7 +5,9 @@ import type {
   NewEnvironment,
   ProjectView,
   RecordingSourceView,
+  RunDetailView,
   RunEvent,
+  RunSummaryView,
 } from "./types";
 
 async function json<T>(res: Response): Promise<T> {
@@ -134,6 +136,15 @@ export const api = {
     post(`/api/projects/${enc(name)}/recordings/${recordingId}/promote`, body).then((r) =>
       json<{ ok: true; feature: string; specPath: string; tcId: string; title: string }>(r),
     ),
+
+  // run history
+  listRuns: (name: string, env?: string, limit = 30) =>
+    fetch(
+      `/api/projects/${enc(name)}/runs?limit=${limit}${env ? `&env=${enc(env)}` : ""}`,
+    ).then((r) => json<RunSummaryView[]>(r)),
+
+  getRun: (name: string, runId: number) =>
+    fetch(`/api/projects/${enc(name)}/runs/${runId}`).then((r) => json<RunDetailView>(r)),
 
   showTrace: (path: string) => post("/api/trace", { path }).then((r) => json(r)),
 

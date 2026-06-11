@@ -2,8 +2,16 @@ import { existsSync, statSync } from "node:fs";
 import { relative } from "node:path";
 import type { Db } from "../core/db.js";
 import { discoverTests } from "../core/discover.js";
+import { isFlaky } from "../core/gate.js";
 import { envAuthStatePath, projectSpecsDir, type ProjectPaths } from "../core/paths.js";
-import type { Environment, Feature, Project, Recording } from "../core/types.js";
+import type {
+  Environment,
+  Feature,
+  Project,
+  Recording,
+  RunSummary,
+  TestHistoryEntry,
+} from "../core/types.js";
 
 export interface TestView {
   testId: string;
@@ -15,6 +23,10 @@ export interface TestView {
   error: string | null;
   tracePath: string | null;
   durationMs: number | null;
+  /** Recent outcomes on the active env, newest first (sparkline data). */
+  history: TestHistoryEntry[];
+  /** True when the gate's flaky heuristic would quarantine this test's failures. */
+  flaky: boolean;
 }
 
 export interface FeatureView {
@@ -74,7 +86,7 @@ export interface ProjectView {
   activeEnv: string | null;
   features: FeatureView[];
   recordings: RecordingView[];
-  recentRuns: { id: number; feature: string | null; env: number; status: string; started_at: string }[];
+  recentRuns: RunSummary[];
   totals: { tests: number; passed: number; failed: number; never: number };
 }
 
@@ -170,6 +182,9 @@ export function buildProjectView(
   const specsDir = projectSpecsDir(paths, project.name);
   const discovered = discoverTests(specsDir);
   const latest = activeEnv ? db.latestResultsByTest(project.id, activeEnv.id) : new Map();
+  const histories = activeEnv
+    ? db.historiesByTest(project.id, activeEnv.id)
+    : new Map<string, TestHistoryEntry[]>();
   const baselines = new Map(
     activeEnv ? db.listBaselines(project.id, activeEnv.id).map((b) => [b.test_id, b.last_known_status]) : [],
   );
@@ -192,6 +207,7 @@ export function buildProjectView(
   for (const t of discovered) {
     const result = latest.get(t.testId);
     const status = result?.status ?? "never-run";
+    const history = histories.get(t.testId) ?? [];
     const view: TestView = {
       testId: t.testId,
       tcId: t.tcId,
@@ -201,6 +217,9 @@ export function buildProjectView(
       error: result?.error ?? null,
       tracePath: result?.trace_path ?? null,
       durationMs: result?.duration_ms ?? null,
+      history,
+      // Mirror the gate's quarantine condition so "flaky" here means "won't trip the gate".
+      flaky: history.length >= 4 && isFlaky(history.map((h) => h.status)),
     };
     let fv = byFeature.get(t.feature);
     if (!fv) {
@@ -254,11 +273,7 @@ export function buildProjectView(
     activeEnv: activeEnv?.name ?? null,
     features: [...byFeature.values()].sort((a, b) => a.feature.localeCompare(b.feature)),
     recordings: allRecordings,
-    recentRuns: activeEnv
-      ? db
-          .listRuns(project.id, activeEnv.id, 10)
-          .map((r) => ({ id: r.id, feature: r.feature, env: r.env_id, status: r.status, started_at: r.started_at }))
-      : [],
+    recentRuns: activeEnv ? db.listRunSummaries(project.id, activeEnv.id, 10) : [],
     totals,
   };
 }

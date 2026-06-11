@@ -71,6 +71,28 @@ export interface Result {
   duration_ms: number | null;
 }
 
+/** One past outcome of a test on an env, used for history sparklines + flaky detection. */
+export interface TestHistoryEntry {
+  runId: number;
+  status: TestStatus;
+  durationMs: number | null;
+  /** started_at of the run that produced this result. */
+  at: string;
+}
+
+/** A run row enriched with its per-result tallies, for the dashboard history timeline. */
+export interface RunSummary {
+  id: number;
+  feature: string | null;
+  status: RunStatus;
+  started_at: string;
+  finished_at: string | null;
+  passed: number;
+  failed: number;
+  skipped: number;
+  duration_ms: number;
+}
+
 export type BaselineStatus = "passed" | "failed";
 
 /** Baselines are keyed per environment so "green on stg" and "green on local" are tracked apart. */

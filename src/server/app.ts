@@ -341,9 +341,30 @@ export function createApp(opts: ServerOptions): Hono {
     return c.json(buildProjectView(db, paths, p, c.req.query("env")));
   });
 
+  app.get("/api/projects/:name/runs", (c) => {
+    const p = getProjectOr404(c.req.param("name"));
+    if (!p) return c.json({ error: "not found" }, 404);
+    const envName = c.req.query("env");
+    const env = envName ? db.getEnvironment(p.id, envName) : db.getDefaultEnvironment(p.id);
+    if (!env) return c.json({ error: "environment not found" }, 404);
+    const limit = Math.min(Number(c.req.query("limit")) || 30, 200);
+    return c.json(db.listRunSummaries(p.id, env.id, limit));
+  });
+
   app.get("/api/projects/:name/runs/:runId", (c) => {
-    const runId = Number(c.req.param("runId"));
-    return c.json(db.listResults(runId));
+    const p = getProjectOr404(c.req.param("name"));
+    if (!p) return c.json({ error: "not found" }, 404);
+    const run = db.getRun(Number(c.req.param("runId")));
+    if (!run || run.project_id !== p.id) return c.json({ error: "run not found" }, 404);
+    const results = db.listResults(run.id).map((r) => ({
+      testId: r.test_id,
+      title: r.title,
+      status: r.status,
+      error: r.error,
+      tracePath: r.trace_path,
+      durationMs: r.duration_ms,
+    }));
+    return c.json({ run, results });
   });
 
   app.get("/api/projects/:name/recordings/:recordingId", (c) => {

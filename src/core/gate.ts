@@ -9,9 +9,10 @@ function isPass(status: string): boolean {
 /**
  * Flaky heuristic: the test's recent recorded history flips between pass and
  * fail more than `flips` times. Flaky tests are quarantined so they cannot
- * trip the regression gate (PRD §8: keep the gate trustworthy).
+ * trip the regression gate (PRD §8: keep the gate trustworthy). Exported so
+ * the dashboard can flag the same tests the gate quarantines.
  */
-function isFlaky(history: string[], flips = 2): boolean {
+export function isFlaky(history: string[], flips = 2): boolean {
   let changes = 0;
   for (let i = 1; i < history.length; i++) {
     if (isPass(history[i]) !== isPass(history[i - 1])) changes++;

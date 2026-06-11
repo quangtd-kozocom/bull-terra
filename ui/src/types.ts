@@ -1,5 +1,13 @@
 // Mirrors the server's view + event shapes (src/server/views.ts, src/core/types.ts).
 
+/** One past outcome of a test on the active env (newest first in TestView.history). */
+export interface TestHistoryEntry {
+  runId: number;
+  status: string;
+  durationMs: number | null;
+  at: string;
+}
+
 export interface TestView {
   testId: string;
   tcId: string | null;
@@ -9,6 +17,9 @@ export interface TestView {
   error: string | null;
   tracePath: string | null;
   durationMs: number | null;
+  history: TestHistoryEntry[];
+  /** True when the gate's flaky heuristic quarantines this test's failures. */
+  flaky: boolean;
 }
 
 export interface FeatureView {
@@ -75,8 +86,35 @@ export interface ProjectView {
   activeEnv: string | null;
   features: FeatureView[];
   recordings: RecordingView[];
-  recentRuns: { id: number; feature: string | null; env: number; status: string; started_at: string }[];
+  recentRuns: RunSummaryView[];
   totals: { tests: number; passed: number; failed: number; never: number };
+}
+
+/** A run plus its per-result tallies — one row of the history timeline. */
+export interface RunSummaryView {
+  id: number;
+  feature: string | null;
+  status: string;
+  started_at: string;
+  finished_at: string | null;
+  passed: number;
+  failed: number;
+  skipped: number;
+  duration_ms: number;
+}
+
+export interface RunResultView {
+  testId: string;
+  title: string;
+  status: string;
+  error: string | null;
+  tracePath: string | null;
+  durationMs: number | null;
+}
+
+export interface RunDetailView {
+  run: { id: number; feature: string | null; status: string; started_at: string; finished_at: string | null };
+  results: RunResultView[];
 }
 
 export interface GateVerdict {
