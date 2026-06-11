@@ -37,6 +37,8 @@ export const features = sqliteTable("features", {
   project_id: integer("project_id").notNull(),
   name: text("name").notNull(),
   sheet_id: text("sheet_id"),
+  start_path: text("start_path").notNull().default("/"),
+  requires_auth: integer("requires_auth").notNull().default(0).$type<0 | 1>(),
   created_at: text("created_at")
     .notNull()
     .default(sql`(datetime('now'))`),
@@ -45,6 +47,7 @@ export const features = sqliteTable("features", {
 export const recordings = sqliteTable("recordings", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   project_id: integer("project_id").notNull(),
+  feature_id: integer("feature_id"),
   name: text("name").notNull(),
   path: text("path").notNull(),
   created_at: text("created_at")
@@ -122,6 +125,8 @@ CREATE TABLE IF NOT EXISTS features (
   project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   name       TEXT NOT NULL,
   sheet_id   TEXT,
+  start_path TEXT NOT NULL DEFAULT '/',
+  requires_auth INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   UNIQUE(project_id, name)
 );
@@ -129,10 +134,11 @@ CREATE TABLE IF NOT EXISTS features (
 CREATE TABLE IF NOT EXISTS recordings (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
   project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  feature_id INTEGER REFERENCES features(id) ON DELETE CASCADE,
   name       TEXT NOT NULL,
   path       TEXT NOT NULL,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  UNIQUE(project_id, name)
+  UNIQUE(project_id, feature_id, name)
 );
 
 CREATE TABLE IF NOT EXISTS runs (
@@ -195,6 +201,49 @@ export function migrateLegacyCredVars(sqlite: Database.Database): void {
     }
     sqlite.exec(`ALTER TABLE environments DROP COLUMN user_var`);
     sqlite.exec(`ALTER TABLE environments DROP COLUMN pass_var`);
+  });
+  tx();
+}
+
+/**
+ * Existing installs used project-level recordings with UNIQUE(project_id, name).
+ * Rebuild the table once so recordings can be scoped to features while old rows
+ * remain unassigned/shared with feature_id = NULL.
+ */
+export function migrateFeatureScopedRecordings(sqlite: Database.Database): void {
+  const cols = sqlite.prepare(`PRAGMA table_info(recordings)`).all() as { name: string }[];
+  if (cols.length === 0 || cols.some((col) => col.name === "feature_id")) return;
+
+  const tx = sqlite.transaction(() => {
+    sqlite.exec(/* sql */ `
+      ALTER TABLE recordings RENAME TO recordings_legacy;
+      CREATE TABLE recordings (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        feature_id INTEGER REFERENCES features(id) ON DELETE CASCADE,
+        name       TEXT NOT NULL,
+        path       TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(project_id, feature_id, name)
+      );
+      INSERT INTO recordings (id, project_id, feature_id, name, path, created_at)
+        SELECT id, project_id, NULL, name, path, created_at FROM recordings_legacy;
+      DROP TABLE recordings_legacy;
+    `);
+  });
+  tx();
+}
+
+export function migrateFeatureRecordingOptions(sqlite: Database.Database): void {
+  const cols = sqlite.prepare(`PRAGMA table_info(features)`).all() as { name: string }[];
+  const names = new Set(cols.map((col) => col.name));
+  const tx = sqlite.transaction(() => {
+    if (!names.has("start_path")) {
+      sqlite.exec(`ALTER TABLE features ADD COLUMN start_path TEXT NOT NULL DEFAULT '/'`);
+    }
+    if (!names.has("requires_auth")) {
+      sqlite.exec(`ALTER TABLE features ADD COLUMN requires_auth INTEGER NOT NULL DEFAULT 0`);
+    }
   });
   tx();
 }

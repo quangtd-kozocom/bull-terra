@@ -15,13 +15,15 @@ Invocation: `/gen-tests <project> <feature>` (e.g. `/gen-tests app-a checkout`).
 
 1. **The project + feature records.** Read `data.db` (SQLite) in the project root:
    - `SELECT id FROM projects WHERE name = '<project>';`
-   - `SELECT name, sheet_id FROM features WHERE project_id = <id> AND name = '<feature>';`
    - `SELECT name, url, is_default FROM environments WHERE project_id = <id>;`
-   - `SELECT name, path FROM recordings WHERE project_id = <id>;`
-   If the project, the feature row, or a recording is missing, STOP and tell the
+   - `SELECT id, name, sheet_id FROM features WHERE project_id = <id> AND name = '<feature>';`
+   - `SELECT name, path FROM recordings WHERE project_id = <id> AND feature_id = <feature_id> ORDER BY CASE WHEN name = 'base' THEN 0 ELSE 1 END, name;`
+   If the project, the feature row, or the feature's `base` recording is missing, STOP and tell the
    user to `bull-terra project add …` / `bull-terra feature add … --sheet <id>` /
-   `bull-terra record …` first. A project now has MANY environments (each a base
-   URL) and MANY features (each with its own sheet) — do NOT assume one of each.
+   `bull-terra record --project <project> --feature <feature> --env <env>` first.
+   A project now has MANY environments (each a base URL) and MANY features (each
+   with its own sheet and recordings) — do NOT assume one of each. Do NOT fall
+   back to project-level/unassigned recordings; selectors must be feature-scoped.
 
 2. **The test cases from the feature's Google Sheet.** Use the Google Sheets MCP
    (`terra-mcp` / `kozocom-mcp`) to read the rows from the **feature's own
@@ -30,15 +32,16 @@ Invocation: `/gen-tests <project> <feature>` (e.g. `/gen-tests app-a checkout`).
    **title/description**, **steps**, and an **expected result**. If the MCP is not
    authenticated, STOP and point the user at `bull-terra init`'s MCP instructions.
 
-3. **The recorded base flow** = the *selector source*. Read the recording file(s) at
-   the `path`(s) from step 1. These contain **real, working selectors** captured by
-   `playwright codegen`. Reuse them verbatim wherever possible — do NOT invent
-   selectors from the DOM or guess. This is how we get accuracy without a per-run
-   live-DOM MCP.
+3. **The feature recordings** = the *selector source*. Read the feature's `base`
+   recording first; it is the primary flow. Then read any other recordings attached
+   to the same feature as secondary context. These contain **real, working
+   selectors** captured by `playwright codegen`. Reuse them verbatim wherever
+   possible — do NOT invent selectors from the DOM or guess. This is how we get
+   accuracy without a per-run live-DOM MCP.
 
 ## What to produce
 
-### 1. `recordings/<project>/helpers.ts` — extracted, reusable steps
+### 1. `recordings/<project>/<feature>/helpers.ts` — extracted, reusable steps
 Factor the recurring navigation/actions out of the recording into small, named
 functions so a UI change is a one-file fix (PRD decision #12). Examples:
 `login(page)`, `gotoCheckout(page)`, `addToCart(page, sku)`. Each helper uses the
@@ -50,6 +53,37 @@ keep helpers stable so other features keep importing them.
   (no manifest). Example: `test('TC-01: guest can check out with a saved card', …)`.
 - Keep tests **flat** — one `test()` per case, no `describe` nesting (bull-terra's
   discovery + regression baseline key on the literal title).
+
+#### Manual-test sections — you own ONLY the AI region
+A feature spec is split into two regions by HTML-comment markers. **You may only
+ever rewrite the AI region**; the manual region holds tests a human promoted from a
+recording (`TC-Mxx`) or hand-wrote, and must survive regeneration untouched:
+
+```ts
+import { test, expect } from "@playwright/test";
+
+// <bull-terra:ai-generated>
+test("TC-01: guest can check out", async ({ page }) => { … });
+// </bull-terra:ai-generated>
+
+// <bull-terra:manual>
+test("TC-M01: checkout with a coupon", async ({ page }) => { … });
+// </bull-terra:manual>
+```
+
+Rules:
+- Put **every test you generate** between the `<bull-terra:ai-generated>` markers.
+  Replace only that region's contents on regeneration; if the markers are absent,
+  wrap your generated tests in a fresh pair.
+- **Never read, edit, reorder, or delete anything between the `<bull-terra:manual>`
+  markers** — not even to "fix" a failing `expect.soft(false, …)` TODO. That region
+  is the human's.
+- **First-time migration:** if the spec predates markers (no markers at all) and
+  already contains tests, do NOT wipe them. Move any test you are NOT regenerating
+  from this run's sheet rows into a new `<bull-terra:manual>` section, put your
+  generated tests in the `<bull-terra:ai-generated>` section, and keep the single
+  shared `import` line. If you can't confidently tell which existing tests are
+  yours, STOP and ask the human rather than overwrite.
 - Import and call the helpers for navigation/setup.
 - The **assertions come straight from the sheet's "expected result"**. Encode them
   faithfully as `expect(...)`.
@@ -108,3 +142,6 @@ STOP and report what you tried.
 5. Don't delete a spec because its sheet row vanished — flag the orphan instead.
 6. Never hardcode a host or credentials — relative URLs + `BASE_URL`/storageState
    keep one spec runnable across every environment.
+7. Only ever rewrite the `<bull-terra:ai-generated>` region; never touch the
+   `<bull-terra:manual>` region. On first migration, preserve existing tests as
+   manual rather than overwriting the file.

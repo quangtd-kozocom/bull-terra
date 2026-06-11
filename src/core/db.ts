@@ -8,6 +8,8 @@ import {
   DDL,
   environments,
   features,
+  migrateFeatureRecordingOptions,
+  migrateFeatureScopedRecordings,
   migrateLegacyCredVars,
   projects,
   recordings,
@@ -45,6 +47,8 @@ export class Db {
     this.sqlite.pragma("foreign_keys = ON");
     this.sqlite.exec(DDL);
     migrateLegacyCredVars(this.sqlite);
+    migrateFeatureScopedRecordings(this.sqlite);
+    migrateFeatureRecordingOptions(this.sqlite);
     this.db = drizzle(this.sqlite, { schema });
   }
 
@@ -216,19 +220,34 @@ export class Db {
 
   // ---- features ----------------------------------------------------------
 
-  upsertFeature(projectId: number, name: string, sheetId?: string | null): Feature {
+  upsertFeature(
+    projectId: number,
+    name: string,
+    sheetId?: string | null,
+    opts: { startPath?: string; requiresAuth?: boolean } = {},
+  ): Feature {
     const existing = this.getFeature(projectId, name);
     if (existing) {
       this.db
         .update(features)
-        .set({ sheet_id: sheetId ?? existing.sheet_id })
+        .set({
+          sheet_id: sheetId ?? existing.sheet_id,
+          start_path: opts.startPath ?? existing.start_path,
+          requires_auth: opts.requiresAuth == null ? existing.requires_auth : opts.requiresAuth ? 1 : 0,
+        })
         .where(eq(features.id, existing.id))
         .run();
       return this.getFeatureById(existing.id)!;
     }
     return this.db
       .insert(features)
-      .values({ project_id: projectId, name, sheet_id: sheetId ?? null })
+      .values({
+        project_id: projectId,
+        name,
+        sheet_id: sheetId ?? null,
+        start_path: opts.startPath ?? "/",
+        requires_auth: opts.requiresAuth ? 1 : 0,
+      })
       .returning()
       .get();
   }
@@ -265,13 +284,18 @@ export class Db {
   updateFeature(
     projectId: number,
     currentName: string,
-    next: { name: string; sheetId?: string | null },
+    next: { name: string; sheetId?: string | null; startPath: string; requiresAuth: boolean },
   ): Feature | undefined {
     const existing = this.getFeature(projectId, currentName);
     if (!existing) return undefined;
     this.db.transaction((tx) => {
       tx.update(features)
-        .set({ name: next.name, sheet_id: next.sheetId ?? null })
+        .set({
+          name: next.name,
+          sheet_id: next.sheetId ?? null,
+          start_path: next.startPath,
+          requires_auth: next.requiresAuth ? 1 : 0,
+        })
         .where(eq(features.id, existing.id))
         .run();
       tx.update(runs)
@@ -301,14 +325,38 @@ export class Db {
   // ---- recordings --------------------------------------------------------
 
   addRecording(projectId: number, name: string, path: string): Recording {
+    const existing = this.getRecording(projectId, null, name);
+    if (existing) {
+      this.db.update(recordings).set({ path }).where(eq(recordings.id, existing.id)).run();
+      return this.getRecordingById(existing.id)!;
+    }
+    return this.db.insert(recordings).values({ project_id: projectId, name, path }).returning().get();
+  }
+
+  addFeatureRecording(projectId: number, featureId: number, name: string, path: string): Recording {
+    const existing = this.getRecording(projectId, featureId, name);
+    if (existing) {
+      this.db.update(recordings).set({ path }).where(eq(recordings.id, existing.id)).run();
+      return this.getRecordingById(existing.id)!;
+    }
     return this.db
       .insert(recordings)
-      .values({ project_id: projectId, name, path })
-      .onConflictDoUpdate({
-        target: [recordings.project_id, recordings.name],
-        set: { path },
-      })
+      .values({ project_id: projectId, feature_id: featureId, name, path })
       .returning()
+      .get();
+  }
+
+  getRecordingById(id: number): Recording | undefined {
+    return this.db.select().from(recordings).where(eq(recordings.id, id)).get();
+  }
+
+  getRecording(projectId: number, featureId: number | null, name: string): Recording | undefined {
+    const featureFilter =
+      featureId == null ? sql`${recordings.feature_id} IS NULL` : eq(recordings.feature_id, featureId);
+    return this.db
+      .select()
+      .from(recordings)
+      .where(and(eq(recordings.project_id, projectId), featureFilter, eq(recordings.name, name)))
       .get();
   }
 
@@ -319,6 +367,25 @@ export class Db {
       .where(eq(recordings.project_id, projectId))
       .orderBy(desc(recordings.created_at))
       .all();
+  }
+
+  listFeatureRecordings(projectId: number, featureId: number): Recording[] {
+    return this.db
+      .select()
+      .from(recordings)
+      .where(and(eq(recordings.project_id, projectId), eq(recordings.feature_id, featureId)))
+      .orderBy(sql`CASE WHEN ${recordings.name} = 'base' THEN 0 ELSE 1 END`, recordings.name)
+      .all();
+  }
+
+  updateRecordingPath(id: number, path: string): Recording | undefined {
+    this.db.update(recordings).set({ path }).where(eq(recordings.id, id)).run();
+    return this.getRecordingById(id);
+  }
+
+  deleteRecording(id: number): boolean {
+    const info = this.db.delete(recordings).where(eq(recordings.id, id)).run();
+    return info.changes > 0;
   }
 
   // ---- runs --------------------------------------------------------------

@@ -101,7 +101,7 @@ ${c.bold("Next steps")}
   2. ${c.cyan("Register a project")}      bull-terra project add <name>
   3. ${c.cyan("Add environment(s)")}     bull-terra env add <name> stg <url> --default --user-var APP_STG_USER --pass-var APP_STG_PASS
   4. ${c.cyan("Add feature(s)")}         bull-terra feature add <name> <feature> --sheet <sheetId>
-  5. ${c.cyan("Record a base flow")}     bull-terra record --project <name> --env stg
+  5. ${c.cyan("Record a base flow")}     bull-terra record --project <name> --feature <feature> --env stg
   6. ${c.cyan("Set up Google Sheets MCP")} the /gen-tests skill reads test cases via the
      ${c.dim("kozocom-mcp / terra-mcp Google MCP. Authenticate it in Claude Code (OAuth);")}
      ${c.dim("bull-terra cannot provision your Google account for you.")}

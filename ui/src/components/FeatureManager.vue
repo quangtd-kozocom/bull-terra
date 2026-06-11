@@ -79,6 +79,12 @@ function confirmRemove(feature: FeatureView) {
           >
             {{ feature.sheetId || "No sheet linked" }}
           </span>
+          <Tag severity="secondary" :value="feature.startPath" class="max-w-32 truncate font-mono" />
+          <Tag
+            :severity="feature.requiresAuth ? 'info' : 'secondary'"
+            :value="feature.requiresAuth ? 'auth' : 'public'"
+            class="font-mono"
+          />
           <Tag severity="secondary" :value="`${feature.tests.length} tc`" class="font-mono" />
 
           <Button

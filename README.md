@@ -32,7 +32,7 @@ Then use the UI to:
 1. Create a project.
 2. Add environments and credential variable names.
 3. Add features and Google Sheet IDs.
-4. Record a base flow.
+4. Record a base flow for each feature.
 5. Copy the generated `/gen-tests` Claude command for a feature.
 6. Paste that command into Claude Code.
 7. Run all features or one feature from the dashboard.
@@ -62,8 +62,8 @@ bull-terra env add app-a stg https://stg.app-a.com --default \
 # 4. Link a feature to its Google Sheet
 bull-terra feature add app-a checkout --sheet <sheetId>
 
-# 5. Record the flow once so generated tests use good selectors
-bull-terra record --project app-a --env stg
+# 5. Record the feature flow once so generated tests use good selectors
+bull-terra record --project app-a --feature checkout --env stg
 
 # 6. Generate Playwright specs from the sheet
 claude "/gen-tests app-a checkout"
@@ -90,7 +90,8 @@ now fails. New tests that never passed are reported but do not fail the gate.
   or `stg`.
 - **Feature**: one Google Sheet of test cases, for example `checkout`.
 - **Recording**: one manual browser pass used as selector source for generated
-  specs.
+  specs. Each feature needs its own `base` recording; extra named recordings can
+  provide secondary selector context.
 - **Baseline**: previous passing result per environment.
 
 ## Commands
@@ -99,7 +100,7 @@ now fails. New tests that never passed are reported but do not fail the gate.
 |---|---|
 | `bull-terra init [--no-browser]` | Create local files and install Chromium. |
 | `bull-terra serve [-p <port>] [--no-open] [--dev]` | Start the dashboard. |
-| `bull-terra record --project <p> --env <e>` | Record a base flow for selectors. |
+| `bull-terra record --project <p> --feature <f> --env <e>` | Record a feature base flow for selectors. |
 | `bull-terra run --project <p> --env <e> --all` | Run the regression gate for all features. |
 | `bull-terra run --project <p> --env <e> --feature <f>` | Run one feature. |
 | `bull-terra install-browsers [--force]` | Install Chromium for recording/runs. |

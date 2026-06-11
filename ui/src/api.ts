@@ -1,4 +1,11 @@
-import type { EnvironmentInput, FeatureInput, NewEnvironment, ProjectView, RunEvent } from "./types";
+import type {
+  EnvironmentInput,
+  FeatureInput,
+  NewEnvironment,
+  ProjectView,
+  RecordingSourceView,
+  RunEvent,
+} from "./types";
 
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? res.statusText);
@@ -55,8 +62,13 @@ export const api = {
       json<ProjectView>(r),
     ),
 
+  captureAuth: (name: string, env: string) =>
+    post(`/api/projects/${enc(name)}/environments/${enc(env)}/auth/capture`, {}).then((r) =>
+      json<{ ok: true; path: string }>(r),
+    ),
+
   // features
-  addFeature: (name: string, feature: { name: string; sheetId?: string }) =>
+  addFeature: (name: string, feature: FeatureInput) =>
     post(`/api/projects/${enc(name)}/features`, feature).then((r) => json<ProjectView>(r)),
 
   updateFeature: (name: string, feature: string, next: FeatureInput) =>
@@ -71,6 +83,12 @@ export const api = {
       json<ProjectView>(r),
     ),
 
+  removeTest: (name: string, feature: string, title: string, env?: string) =>
+    fetch(
+      `/api/projects/${enc(name)}/features/${enc(feature)}/tests?title=${enc(title)}${env ? `&env=${enc(env)}` : ""}`,
+      { method: "DELETE" },
+    ).then((r) => json<ProjectView>(r)),
+
   genCommand: (name: string, feature?: string) =>
     fetch(`/api/projects/${enc(name)}/gen-command?feature=${enc(feature ?? "")}`).then((r) =>
       json<{ command: string }>(r),
@@ -78,6 +96,31 @@ export const api = {
 
   record: (name: string, body: { name?: string; url?: string; env?: string }) =>
     post(`/api/projects/${enc(name)}/record`, body).then((r) => json(r)),
+
+  recordFeature: (
+    name: string,
+    feature: string,
+    body: { name?: string; url?: string; env?: string },
+  ) =>
+    post(`/api/projects/${enc(name)}/features/${enc(feature)}/recordings`, body).then((r) =>
+      json(r),
+    ),
+
+  removeRecording: (name: string, recordingId: number, env?: string) =>
+    fetch(
+      `/api/projects/${enc(name)}/recordings/${recordingId}${env ? `?env=${enc(env)}` : ""}`,
+      { method: "DELETE" },
+    ).then((r) => json<ProjectView>(r)),
+
+  getRecording: (name: string, recordingId: number) =>
+    fetch(`/api/projects/${enc(name)}/recordings/${recordingId}`).then((r) =>
+      json<RecordingSourceView>(r),
+    ),
+
+  promoteRecording: (name: string, recordingId: number, body: { tcId: string; title: string }) =>
+    post(`/api/projects/${enc(name)}/recordings/${recordingId}/promote`, body).then((r) =>
+      json<{ ok: true; feature: string; specPath: string; tcId: string; title: string }>(r),
+    ),
 
   showTrace: (path: string) => post("/api/trace", { path }).then((r) => json(r)),
 

@@ -1,5 +1,6 @@
 import { executeRun } from "../../core/engine.js";
 import { discoverFeatures } from "../../core/discover.js";
+import { authRequirementError } from "../../core/auth.js";
 import { projectSpecsDir } from "../../core/paths.js";
 import { buildWriteback, writeWritebackFile } from "../../core/writeback.js";
 import {
@@ -42,6 +43,13 @@ export async function runCommand(flags: RunFlags): Promise<void> {
         throw new CliError(
           `No generated specs found under ${specsDir}. Generate some with: claude "/gen-tests ${project.name} <feature>"`,
         );
+    }
+
+    for (const featureName of features ?? discoverFeatures(specsDir)) {
+      const feature = db.getFeature(project.id, featureName);
+      if (!feature) continue;
+      const authError = authRequirementError(paths, project, env, feature);
+      if (authError) throw new CliError(authError);
     }
 
     console.log(

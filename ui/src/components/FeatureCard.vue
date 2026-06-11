@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, shallowRef } from "vue";
 import type { FeatureView } from "../types";
 import { healthColor, isRegression, look } from "../lib/status";
 
@@ -13,10 +13,13 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: "run", feature: string): void;
   (e: "gen", feature: string): void;
+  (e: "record", feature: string): void;
+  (e: "viewRecording", recordingId: number): void;
   (e: "trace", path: string): void;
+  (e: "deleteTest", feature: string, title: string): void;
 }>();
 
-const open = ref(true);
+const open = shallowRef(true);
 
 function statusOf(title: string, persisted: string): string {
   return props.liveStatus[title] ?? persisted;
@@ -38,6 +41,8 @@ const barColor = computed(() =>
     ? "var(--color-fail)"
     : healthColor(summary.value.pass, summary.value.total, 0),
 );
+
+const baseRecording = computed(() => props.feature.recordings.find((recording) => recording.name === "base") ?? null);
 </script>
 
 <template>
@@ -69,7 +74,26 @@ const barColor = computed(() =>
         <p class="truncate text-[11px] text-ink-3">
           <template v-if="feature.sheetId">sheet {{ feature.sheetId }}</template>
           <span v-else class="text-flaky">no sheet registered</span>
-          <span class="text-ink-3"> · {{ feature.specRelPath }}</span>
+          <span class="text-ink-3"> · start {{ feature.startPath }} · {{ feature.specRelPath }}</span>
+        </p>
+        <p class="mt-1 flex items-center gap-2 text-[11px]">
+          <span
+            class="rounded-sm border px-1.5 py-0.5 font-mono"
+            :class="
+              baseRecording
+                ? 'border-pass/40 bg-pass/10 text-pass'
+                : 'border-flaky/40 bg-flaky/10 text-flaky'
+            "
+          >
+            {{ baseRecording ? 'base recording ready' : 'base recording missing' }}
+          </span>
+          <span v-if="baseRecording" class="truncate font-mono text-ink-3">{{ baseRecording.path }}</span>
+          <span
+            class="rounded-sm border px-1.5 py-0.5 font-mono"
+            :class="feature.requiresAuth ? 'border-accent/40 bg-accent/10 text-accent' : 'border-line text-ink-3'"
+          >
+            {{ feature.requiresAuth ? 'auth required' : 'public' }}
+          </span>
         </p>
       </div>
 
@@ -79,11 +103,26 @@ const barColor = computed(() =>
       </div>
 
       <button
-        class="rounded-sm border border-line px-2 py-1 text-[11px] text-ink-2 transition hover:border-accent hover:text-accent"
+        class="rounded-sm border border-line px-2 py-1 text-[11px] text-ink-2 transition hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-40"
         title="Copy the /gen-tests command for Claude Code"
+        :disabled="!baseRecording"
         @click="emit('gen', feature.feature)"
       >
         gen
+      </button>
+      <button
+        class="rounded-sm border border-line px-2 py-1 text-[11px] text-ink-2 transition hover:border-accent hover:text-accent disabled:opacity-40"
+        :disabled="running"
+        @click="emit('record', feature.feature)"
+      >
+        record base
+      </button>
+      <button
+        v-if="baseRecording"
+        class="rounded-sm border border-line px-2 py-1 text-[11px] text-ink-2 transition hover:border-accent hover:text-accent"
+        @click="emit('viewRecording', baseRecording.id)"
+      >
+        view
       </button>
       <button
         class="rounded-sm border border-accent bg-accent/10 px-3 py-1 text-[11px] font-medium text-accent transition hover:bg-accent/20 disabled:opacity-40"
@@ -138,10 +177,27 @@ const barColor = computed(() =>
         >
           trace ↗
         </button>
+
+        <button
+          class="shrink-0 font-mono text-[11px] text-ink-3 transition hover:text-fail disabled:cursor-not-allowed disabled:opacity-40"
+          title="Delete this test case from the spec file"
+          :disabled="running"
+          :aria-label="`Delete ${t.title}`"
+          @click="emit('deleteTest', feature.feature, t.title)"
+        >
+          ✕
+        </button>
       </li>
       <li v-if="!feature.tests.length" class="px-4 py-4 text-center text-xs text-ink-3">
-        No tests generated yet —
-        <button class="text-accent hover:underline" @click="emit('gen', feature.feature)">
+        <template v-if="baseRecording">
+          No tests generated yet —
+        </template>
+        <template v-else>No tests generated yet — record base flow first, then generate.</template>
+        <button
+          v-if="baseRecording"
+          class="text-accent hover:underline"
+          @click="emit('gen', feature.feature)"
+        >
           copy the /gen-tests command
         </button>
       </li>

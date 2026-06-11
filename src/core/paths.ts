@@ -54,16 +54,38 @@ export function envAuthStatePath(
   projectName: string,
   envName: string,
 ): string {
-  const safe = (s: string) => s.replace(/[^a-zA-Z0-9._-]/g, "_");
-  return join(paths.authDir, `${safe(projectName)}-${safe(envName)}.json`);
+  return join(paths.authDir, `${safePathSegment(projectName)}-${safePathSegment(envName)}.json`);
 }
 
 /** recordings/<project>/ */
 export function projectRecordingsDir(paths: ProjectPaths, projectName: string): string {
-  return join(paths.recordingsDir, projectName);
+  return join(paths.recordingsDir, safePathSegment(projectName));
+}
+
+/** recordings/<project>/<feature>/ */
+export function featureRecordingsDir(
+  paths: ProjectPaths,
+  projectName: string,
+  featureName: string,
+): string {
+  return join(projectRecordingsDir(paths, projectName), safePathSegment(featureName));
+}
+
+/** recordings/<project>/<feature>/<recording>.ts */
+export function featureRecordingPath(
+  paths: ProjectPaths,
+  projectName: string,
+  featureName: string,
+  recordingName: string,
+): string {
+  return join(featureRecordingsDir(paths, projectName, featureName), `${safePathSegment(recordingName)}.ts`);
 }
 
 /** tests/gen/<project>/ */
 export function projectSpecsDir(paths: ProjectPaths, projectName: string): string {
   return join(paths.specsDir, projectName);
+}
+
+export function safePathSegment(s: string): string {
+  return s.replace(/[^a-zA-Z0-9._-]/g, "_");
 }

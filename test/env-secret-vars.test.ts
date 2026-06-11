@@ -179,3 +179,50 @@ describe("legacy user_var/pass_var migration", () => {
     db.close();
   });
 });
+
+describe("feature-scoped recordings", () => {
+  it("allows each feature to own a base recording", () => {
+    const db = new Db(":memory:");
+    const projectId = db.createProject("app").id;
+    const checkout = db.upsertFeature(projectId, "checkout", "sheet-a");
+    const login = db.upsertFeature(projectId, "login", "sheet-b");
+
+    db.addFeatureRecording(projectId, checkout.id, "base", "/tmp/checkout/base.ts");
+    db.addFeatureRecording(projectId, login.id, "base", "/tmp/login/base.ts");
+
+    expect(db.getRecording(projectId, checkout.id, "base")?.path).toBe("/tmp/checkout/base.ts");
+    expect(db.getRecording(projectId, login.id, "base")?.path).toBe("/tmp/login/base.ts");
+    db.close();
+  });
+
+  it("keeps legacy project recordings unassigned during migration", () => {
+    const dir = mkdtempSync(join(tmpdir(), "bt-rec-mig-"));
+    const dbPath = join(dir, "data.db");
+    const old = new Database(dbPath);
+    old.exec(`
+      CREATE TABLE projects (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL DEFAULT (datetime('now')));
+      CREATE TABLE recordings (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_id INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        path TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(project_id, name)
+      );
+    `);
+    old.prepare(`INSERT INTO projects (id, name) VALUES (1, 'app')`).run();
+    old.prepare(`INSERT INTO recordings (project_id, name, path) VALUES (?,?,?)`).run(
+      1,
+      "base",
+      "/tmp/shared/base.ts",
+    );
+    old.close();
+
+    const db = new Db(dbPath);
+    const [recording] = db.listRecordings(1);
+    expect(recording.feature_id).toBeNull();
+    expect(recording.path).toBe("/tmp/shared/base.ts");
+    db.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+});

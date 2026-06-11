@@ -1,7 +1,9 @@
+import { existsSync, statSync } from "node:fs";
+import { relative } from "node:path";
 import type { Db } from "../core/db.js";
 import { discoverTests } from "../core/discover.js";
-import { projectSpecsDir, type ProjectPaths } from "../core/paths.js";
-import type { Environment, Feature, Project } from "../core/types.js";
+import { envAuthStatePath, projectSpecsDir, type ProjectPaths } from "../core/paths.js";
+import type { Environment, Feature, Project, Recording } from "../core/types.js";
 
 export interface TestView {
   testId: string;
@@ -20,10 +22,23 @@ export interface FeatureView {
   specRelPath: string;
   /** Registered sheet id for this feature (1:1 sheet = feature), if any. */
   sheetId: string | null;
+  startPath: string;
+  requiresAuth: boolean;
   /** True when a feature row exists in the DB (vs only discovered on disk). */
   registered: boolean;
   tests: TestView[];
   counts: Record<string, number>;
+  recordings: RecordingView[];
+  hasBaseRecording: boolean;
+}
+
+export interface RecordingView {
+  id: number;
+  name: string;
+  path: string;
+  feature: string | null;
+  isPrimary: boolean;
+  created_at: string;
 }
 
 export interface EnvironmentView {
@@ -33,6 +48,9 @@ export interface EnvironmentView {
   /** KEY -> .env variable NAME. Names only; values stay in .env. */
   secretVars: Record<string, string>;
   isDefault: boolean;
+  authStatePath: string;
+  authStateExists: boolean;
+  authStateUpdatedAt: string | null;
 }
 
 export interface ProjectView {
@@ -43,18 +61,34 @@ export interface ProjectView {
   /** The env this view's statuses/baselines are computed for. */
   activeEnv: string | null;
   features: FeatureView[];
-  recordings: { id: number; name: string; path: string }[];
+  recordings: RecordingView[];
   recentRuns: { id: number; feature: string | null; env: number; status: string; started_at: string }[];
   totals: { tests: number; passed: number; failed: number; never: number };
 }
 
-function envView(e: Environment): EnvironmentView {
+function envView(paths: ProjectPaths, project: Project, e: Environment): EnvironmentView {
+  const authPath = envAuthStatePath(paths, project.name, e.name);
+  const authStateExists = existsSync(authPath);
   return {
     id: e.id,
     name: e.name,
     url: e.url,
     secretVars: e.secret_vars,
     isDefault: e.is_default === 1,
+    authStatePath: relative(paths.root, authPath).split("\\").join("/"),
+    authStateExists,
+    authStateUpdatedAt: authStateExists ? statSync(authPath).mtime.toISOString() : null,
+  };
+}
+
+function recordingView(recording: Recording, featureName: string | null): RecordingView {
+  return {
+    id: recording.id,
+    name: recording.name,
+    path: recording.path,
+    feature: featureName,
+    isPrimary: recording.name === "base",
+    created_at: recording.created_at,
   };
 }
 
@@ -81,6 +115,17 @@ export function buildProjectView(
     activeEnv ? db.listBaselines(project.id, activeEnv.id).map((b) => [b.test_id, b.last_known_status]) : [],
   );
   const featureRows = new Map<string, Feature>(db.listFeatures(project.id).map((f) => [f.name, f]));
+  const featureNamesById = new Map([...featureRows.values()].map((f) => [f.id, f.name]));
+  const allRecordings = db
+    .listRecordings(project.id)
+    .map((r) => recordingView(r, r.feature_id == null ? null : featureNamesById.get(r.feature_id) ?? null));
+  const recordingsByFeature = new Map<string, RecordingView[]>();
+  for (const recording of allRecordings) {
+    if (!recording.feature) continue;
+    const current = recordingsByFeature.get(recording.feature) ?? [];
+    current.push(recording);
+    recordingsByFeature.set(recording.feature, current);
+  }
 
   const byFeature = new Map<string, FeatureView>();
   const totals = { tests: 0, passed: 0, failed: 0, never: 0 };
@@ -105,9 +150,13 @@ export function buildProjectView(
         feature: t.feature,
         specRelPath: t.specRelPath,
         sheetId: row?.sheet_id ?? null,
+        startPath: row?.start_path ?? "/",
+        requiresAuth: row?.requires_auth === 1,
         registered: !!row,
         tests: [],
         counts: {},
+        recordings: recordingsByFeature.get(t.feature) ?? [],
+        hasBaseRecording: (recordingsByFeature.get(t.feature) ?? []).some((r) => r.name === "base"),
       };
       byFeature.set(t.feature, fv);
     }
@@ -126,9 +175,13 @@ export function buildProjectView(
       feature: f.name,
       specRelPath: `${project.name}/${f.name}.spec.ts`,
       sheetId: f.sheet_id,
+      startPath: f.start_path,
+      requiresAuth: f.requires_auth === 1,
       registered: true,
       tests: [],
       counts: {},
+      recordings: recordingsByFeature.get(f.name) ?? [],
+      hasBaseRecording: (recordingsByFeature.get(f.name) ?? []).some((r) => r.name === "base"),
     });
   }
 
@@ -136,10 +189,10 @@ export function buildProjectView(
     id: project.id,
     name: project.name,
     created_at: project.created_at,
-    environments: environments.map(envView),
+    environments: environments.map((env) => envView(paths, project, env)),
     activeEnv: activeEnv?.name ?? null,
     features: [...byFeature.values()].sort((a, b) => a.feature.localeCompare(b.feature)),
-    recordings: db.listRecordings(project.id).map((r) => ({ id: r.id, name: r.name, path: r.path })),
+    recordings: allRecordings,
     recentRuns: activeEnv
       ? db
           .listRuns(project.id, activeEnv.id, 10)

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, reactive, shallowRef, watch } from "vue";
 import Button from "primevue/button";
+import Checkbox from "primevue/checkbox";
 import Dialog from "primevue/dialog";
 import InputText from "primevue/inputtext";
 import type { FeatureInput, FeatureView } from "../types";
@@ -17,7 +18,7 @@ const emit = defineEmits<{
   (e: "submit", value: FeatureInput): void;
 }>();
 
-const form = reactive({ name: "", sheetId: "" });
+const form = reactive({ name: "", sheetId: "", startPath: "/", requiresAuth: false });
 const error = shallowRef("");
 
 const title = computed(() =>
@@ -31,6 +32,8 @@ watch(
     if (!isVisible) return;
     form.name = props.feature?.feature ?? "";
     form.sheetId = props.feature?.sheetId ?? "";
+    form.startPath = props.feature?.startPath ?? "/";
+    form.requiresAuth = props.feature?.requiresAuth ?? false;
     error.value = "";
   },
 );
@@ -44,6 +47,8 @@ function submit() {
   emit("submit", {
     name: form.name.trim(),
     sheetId: form.sheetId.trim() || undefined,
+    startPath: form.startPath.trim() || "/",
+    requiresAuth: form.requiresAuth,
   });
 }
 </script>
@@ -63,6 +68,14 @@ function submit() {
       <label class="grid gap-2">
         <span class="label text-ink-3">google sheet id</span>
         <InputText v-model="form.sheetId" class="w-full font-mono text-sm" placeholder="1aBcD..." />
+      </label>
+      <label class="grid gap-2">
+        <span class="label text-ink-3">start path</span>
+        <InputText v-model="form.startPath" class="w-full font-mono text-sm" placeholder="/checkout" />
+      </label>
+      <label class="flex items-center gap-2 rounded-md border border-line bg-app px-3 py-2">
+        <Checkbox v-model="form.requiresAuth" binary input-id="requires-auth" />
+        <span class="text-sm text-ink">requires auth state before recording</span>
       </label>
       <p v-if="error" class="text-xs text-fail">{{ error }}</p>
 

@@ -15,9 +15,26 @@ export interface FeatureView {
   feature: string;
   specRelPath: string;
   sheetId: string | null;
+  startPath: string;
+  requiresAuth: boolean;
   registered: boolean;
   tests: TestView[];
   counts: Record<string, number>;
+  recordings: RecordingView[];
+  hasBaseRecording: boolean;
+}
+
+export interface RecordingView {
+  id: number;
+  name: string;
+  path: string;
+  feature: string | null;
+  isPrimary: boolean;
+  created_at: string;
+}
+
+export interface RecordingSourceView extends RecordingView {
+  source: string;
 }
 
 export interface EnvironmentView {
@@ -27,6 +44,9 @@ export interface EnvironmentView {
   /** KEY -> .env variable NAME. Names only; values stay in .env. */
   secretVars: Record<string, string>;
   isDefault: boolean;
+  authStatePath: string;
+  authStateExists: boolean;
+  authStateUpdatedAt: string | null;
 }
 
 export interface ProjectView {
@@ -36,7 +56,7 @@ export interface ProjectView {
   environments: EnvironmentView[];
   activeEnv: string | null;
   features: FeatureView[];
-  recordings: { id: number; name: string; path: string }[];
+  recordings: RecordingView[];
   recentRuns: { id: number; feature: string | null; env: number; status: string; started_at: string }[];
   totals: { tests: number; passed: number; failed: number; never: number };
 }
@@ -70,4 +90,6 @@ export type EnvironmentInput = Omit<NewEnvironment, "isDefault">;
 export interface FeatureInput {
   name: string;
   sheetId?: string;
+  startPath: string;
+  requiresAuth: boolean;
 }

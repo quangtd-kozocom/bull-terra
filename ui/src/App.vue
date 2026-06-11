@@ -9,7 +9,13 @@ import Toast from "primevue/toast";
 import { useConfirm } from "primevue/useconfirm";
 import { useToast } from "primevue/usetoast";
 import { api } from "./api";
-import type { EnvironmentInput, FeatureInput, NewEnvironment } from "./types";
+import type {
+  EnvironmentInput,
+  FeatureInput,
+  NewEnvironment,
+  RecordingSourceView,
+  RecordingView,
+} from "./types";
 import { useRun } from "./composables/useRun";
 import { useProjectsStore } from "./stores/projects";
 import Sidebar from "./components/Sidebar.vue";
@@ -18,6 +24,9 @@ import RunConsole from "./components/RunConsole.vue";
 import EnvManager from "./components/EnvManager.vue";
 import FeatureManager from "./components/FeatureManager.vue";
 import ProjectDialog from "./components/ProjectDialog.vue";
+import RecordingPreviewDialog from "./components/RecordingPreviewDialog.vue";
+import RecordingsManager from "./components/RecordingsManager.vue";
+import PromoteTestDialog from "./components/PromoteTestDialog.vue";
 
 const projectsStore = useProjectsStore();
 const { projects, selectedName, activeEnv, showSettings, saving, selected, hasEnv, gauges } =
@@ -28,9 +37,16 @@ const confirm = useConfirm();
 const toast = useToast();
 
 const recording = shallowRef(false);
+const recordingPreviewVisible = shallowRef(false);
+const recordingPreviewLoading = shallowRef(false);
+const recordingPreview = shallowRef<RecordingSourceView | null>(null);
 const projectDialogVisible = shallowRef(false);
 const projectDialogMode = shallowRef<"create" | "rename">("create");
 const editingProjectName = shallowRef("");
+const capturingAuth = shallowRef<string | null>(null);
+const promoteVisible = shallowRef(false);
+const promoting = shallowRef(false);
+const promoteTarget = shallowRef<RecordingView | null>(null);
 
 onMounted(() => {
   projectsStore.loadProjects().catch(showError);
@@ -101,6 +117,33 @@ function confirmDeleteProject(name: string) {
   });
 }
 
+function confirmDeleteTest(feature: string, title: string) {
+  confirm.require({
+    header: "Delete test case",
+    message: `Delete "${title}" from ${feature}.spec.ts? This rewrites the spec file.`,
+    icon: "pi pi-exclamation-triangle",
+    rejectLabel: "Cancel",
+    acceptLabel: "Delete test",
+    acceptClass: "p-button-danger",
+    accept: () =>
+      runAction(() => projectsStore.deleteTest(feature, title), `Deleted ${title}.`),
+  });
+}
+
+function confirmDeleteRecording(recording: RecordingView) {
+  const scope = recording.feature ? `${recording.feature}/${recording.name}` : recording.name;
+  confirm.require({
+    header: "Delete recording",
+    message: `Delete recording "${scope}"? The file moves to .history.`,
+    icon: "pi pi-exclamation-triangle",
+    rejectLabel: "Cancel",
+    acceptLabel: "Delete recording",
+    acceptClass: "p-button-danger",
+    accept: () =>
+      runAction(() => projectsStore.deleteRecording(recording.id), `Deleted recording ${scope}.`),
+  });
+}
+
 function runFeature(feature: string | undefined) {
   if (!selected.value || run.running) return;
   if (!hasEnv.value) {
@@ -121,6 +164,11 @@ async function stopRun() {
 
 async function copyGen(feature: string) {
   if (!selected.value) return;
+  const featureView = selected.value.features.find((item) => item.feature === feature);
+  if (!featureView?.hasBaseRecording) {
+    showWarn("Record base first", "Generation needs feature-scoped selectors.");
+    return;
+  }
   try {
     const { command } = await api.genCommand(selected.value.name, feature);
     await copy(command);
@@ -130,7 +178,7 @@ async function copyGen(feature: string) {
   }
 }
 
-async function record() {
+async function recordFeature(feature: string, name = "base") {
   if (!selected.value || recording.value) return;
   if (!hasEnv.value) {
     showWarn("Add an environment first", "Recording needs a target environment.");
@@ -139,15 +187,68 @@ async function record() {
   }
 
   recording.value = true;
-  showWarn("Recording started", "A browser should open. Close it when done.");
+  showWarn("Recording started", `A browser should open for ${feature}/${name}. Close it when done.`);
   try {
-    await api.record(selected.value.name, { env: activeEnv.value ?? undefined });
+    await api.recordFeature(selected.value.name, feature, { name, env: activeEnv.value ?? undefined });
     await projectsStore.refreshSelected();
-    showSuccess("Recording saved", "Base flow registered.");
+    showSuccess("Recording saved", `${feature}/${name} registered.`);
   } catch (error) {
     showError(error);
   } finally {
     recording.value = false;
+  }
+}
+
+async function viewRecording(recordingId: number) {
+  if (!selected.value) return;
+  recordingPreviewVisible.value = true;
+  recordingPreviewLoading.value = true;
+  recordingPreview.value = null;
+  try {
+    recordingPreview.value = await api.getRecording(selected.value.name, recordingId);
+  } catch (error) {
+    recordingPreviewVisible.value = false;
+    showError(error);
+  } finally {
+    recordingPreviewLoading.value = false;
+  }
+}
+
+async function captureAuth(env: string) {
+  if (!selected.value || capturingAuth.value) return;
+  capturingAuth.value = env;
+  showWarn("Login browser opened", `Log in for ${env}, then close the browser to save the session.`);
+  try {
+    await api.captureAuth(selected.value.name, env);
+    await projectsStore.refreshSelected();
+    showSuccess("Auth session saved", `${env} can now record and run auth-required features.`);
+  } catch (error) {
+    showError(error);
+  } finally {
+    capturingAuth.value = null;
+  }
+}
+
+function openPromote(recordingId: number) {
+  if (!selected.value) return;
+  const target = selected.value.recordings.find((item) => item.id === recordingId);
+  if (!target) return;
+  promoteTarget.value = target;
+  promoteVisible.value = true;
+}
+
+async function submitPromote(value: { tcId: string; title: string }) {
+  if (!selected.value || !promoteTarget.value || promoting.value) return;
+  promoting.value = true;
+  try {
+    const result = await api.promoteRecording(selected.value.name, promoteTarget.value.id, value);
+    await projectsStore.refreshSelected();
+    promoteVisible.value = false;
+    showSuccess("Manual test created", `${result.tcId} added to ${result.feature}.spec.ts (TODO assertion).`);
+  } catch (error) {
+    showError(error);
+  } finally {
+    promoting.value = false;
   }
 }
 
@@ -225,14 +326,6 @@ async function showTrace(path: string) {
                 @click="showSettings = !showSettings"
               />
               <Button
-                :label="recording ? 'Recording...' : 'Record base flow'"
-                :icon="recording ? 'pi pi-circle-fill' : 'pi pi-plus'"
-                size="small"
-                severity="secondary"
-                :disabled="recording"
-                @click="record"
-              />
-              <Button
                 label="Run all"
                 icon="pi pi-play"
                 size="small"
@@ -256,16 +349,18 @@ async function showTrace(path: string) {
           </div>
         </header>
 
-        <div v-if="showSettings" class="grid gap-3 border-b border-line px-7 py-5 lg:grid-cols-2">
+        <div v-if="showSettings" class="grid gap-3 border-b border-line px-7 py-5 xl:grid-cols-3">
           <EnvManager
             :environments="selected.environments"
             :active-env="activeEnv"
             :saving="saving"
+            :capturing-auth="capturingAuth"
             @select="projectsStore.selectEnv"
             @set-default="setDefaultEnv"
             @remove="removeEnv"
             @add="addEnv"
             @update="updateEnv"
+            @capture-auth="captureAuth"
           />
           <FeatureManager
             :features="selected.features"
@@ -273,6 +368,15 @@ async function showTrace(path: string) {
             @add="addFeature"
             @update="updateFeature"
             @remove="removeFeature"
+          />
+          <RecordingsManager
+            :features="selected.features"
+            :recordings="selected.recordings"
+            :saving="saving || recording"
+            @record="recordFeature"
+            @view="viewRecording"
+            @promote="openPromote"
+            @remove="confirmDeleteRecording"
           />
         </div>
 
@@ -287,7 +391,10 @@ async function showTrace(path: string) {
               :active-title="run.active"
               @run="(name) => runFeature(name)"
               @gen="copyGen"
+              @record="(name) => recordFeature(name)"
+              @view-recording="viewRecording"
               @trace="showTrace"
+              @delete-test="confirmDeleteTest"
             />
 
             <div
@@ -337,6 +444,17 @@ async function showTrace(path: string) {
       :initial-name="editingProjectName"
       :saving="saving"
       @submit="submitProject"
+    />
+    <RecordingPreviewDialog
+      v-model:visible="recordingPreviewVisible"
+      :recording="recordingPreview"
+      :loading="recordingPreviewLoading"
+    />
+    <PromoteTestDialog
+      v-model:visible="promoteVisible"
+      :recording="promoteTarget"
+      :saving="promoting"
+      @submit="submitPromote"
     />
     <ConfirmDialog />
     <Toast position="bottom-center" />

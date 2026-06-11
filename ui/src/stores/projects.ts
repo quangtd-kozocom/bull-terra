@@ -218,6 +218,39 @@ export const useProjectsStore = defineStore("projects", () => {
     }
   }
 
+  async function deleteTest(feature: string, title: string) {
+    if (!selected.value) return null;
+    saving.value = true;
+    try {
+      const fresh = await api.removeTest(
+        selected.value.name,
+        feature,
+        title,
+        activeEnv.value ?? undefined,
+      );
+      replaceProject(fresh);
+      return fresh;
+    } finally {
+      saving.value = false;
+    }
+  }
+
+  async function deleteRecording(recordingId: number) {
+    if (!selected.value) return null;
+    saving.value = true;
+    try {
+      const fresh = await api.removeRecording(
+        selected.value.name,
+        recordingId,
+        activeEnv.value ?? undefined,
+      );
+      replaceProject(fresh);
+      return fresh;
+    } finally {
+      saving.value = false;
+    }
+  }
+
   return {
     projects,
     selectedName,
@@ -242,5 +275,7 @@ export const useProjectsStore = defineStore("projects", () => {
     addFeature,
     updateFeature,
     deleteFeature,
+    deleteTest,
+    deleteRecording,
   };
 });

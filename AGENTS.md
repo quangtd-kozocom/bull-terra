@@ -2,7 +2,12 @@
 
 ## Project
 
-`bull-terra` is a local UI-testing harness. It turns Google Sheet test cases into runnable Playwright specs, runs them through a Hono-backed dashboard, and gates regressions per environment.
+`bull-terra` is a local UI-testing harness. It turns Google Sheet test cases into runnable Playwright specs, runs them through a Hono-backed dashboard, and gates regressions per environment. A project has many environments (each a base URL) and many features (each with its own sheet, start path, and recordings) — never assume one of each.
+
+Key concepts:
+- **Feature-scoped recordings**: `playwright codegen` recordings are attached to a feature (`feature_id`) and stored under `recordings/<project>/<feature>/`. They are the *selector source* for generated specs. Legacy project-level recordings (`feature_id = NULL`) still exist but new flows must be feature-scoped.
+- **Auth storageState**: features can be marked `requires_auth`; the dashboard captures a per-environment storageState into `.auth/<project>-<env>.json`, which recording/runs load via `--load-storage`. Recording an auth-required feature without captured state errors early.
+- **Manual vs AI regions**: a feature spec is split by HTML-comment markers into a `<bull-terra:ai-generated>` region (owned by the `gen-tests` skill, replaced on regeneration) and a `<bull-terra:manual>` region (human-promoted `TC-Mxx` tests, never touched by regeneration). Recordings can be *promoted* into manual tests from the dashboard.
 
 ## Stack
 
@@ -15,10 +20,15 @@
 
 ## Repo Layout
 
-- `src/cli/`: command definitions and CLI entrypoint.
-- `src/core/`: project discovery, DB, runner, gate, Playwright integration, writeback.
-- `src/server/`: Hono server, API views, run manager, dashboard serving.
-- `ui/src/`: Vue dashboard components, API client, types, composables, styles.
+- `src/cli/`: command definitions and CLI entrypoint (`record` takes `--feature`; `feature add` takes `--start-path`/`--auth`/`--no-auth`).
+- `src/core/`: project discovery, DB, runner, gate, Playwright integration, writeback. Notable modules:
+  - `paths.ts`: path helpers; use `safePathSegment` and `featureRecording*` for all on-disk names.
+  - `auth.ts`: storageState location/freshness, `requires_auth` gating, `featureStartUrl`, start-path normalization.
+  - `recordings.ts`: backup/rotate prior recordings into `.history/`.
+  - `manual-tests.ts`: `TC` id normalization, codegen-body extraction, and appending promoted tests into the `<bull-terra:manual>` region.
+  - `schema.ts`: Drizzle schema plus idempotent migrations (`migrateFeatureScopedRecordings`, `migrateFeatureRecordingOptions`, etc.).
+- `src/server/`: Hono server, API views, run manager, dashboard serving. New routes cover auth capture, recording preview/delete/promote, per-feature recording creation, and clearing a feature's generated tests.
+- `ui/src/`: Vue dashboard components, API client, types, composables, styles. Includes `RecordingsManager`, `RecordingPreviewDialog`, and `PromoteTestDialog`.
 - `templates/`: files copied into initialized projects (playwright config, global-setup, .env.example).
 - `skills/`: the published `gen-tests` skill, installed by consumers via skills.sh.
 - `.agents/skills/`: local skills used by coding agents.
@@ -39,7 +49,10 @@
 - Keep changes scoped to the requested behavior.
 - Preserve strict TypeScript settings; fix unused locals and unused parameters instead of suppressing them.
 - Keep CLI behavior and dashboard API contracts aligned when changing `src/server`, `src/core`, or `ui/src/api.ts`.
-- Store secrets only in `.env` or user environment variables. The app should store variable names, not secret values.
+- Store secrets only in `.env` or user environment variables. The app should store variable names, not secret values. Auth storageState files live under `.auth/` and must not be committed.
+- Use `safePathSegment` / the `featureRecording*` path helpers for any on-disk project, feature, env, or recording name — do not hand-roll sanitization.
+- When changing the data model, add an idempotent migration in `schema.ts` (guard on `PRAGMA table_info`) instead of mutating existing rows destructively; existing installs must keep working.
+- Never have automated regeneration touch the `<bull-terra:manual>` region of a spec; only the `<bull-terra:ai-generated>` region is machine-owned.
 - Do not weaken generated Playwright assertions to make tests pass.
 - Do not edit unrelated dirty files.
 - Do not add dependencies unless the existing stack cannot reasonably solve the problem.

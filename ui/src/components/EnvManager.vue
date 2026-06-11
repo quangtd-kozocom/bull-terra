@@ -10,6 +10,7 @@ const props = defineProps<{
   environments: EnvironmentView[];
   activeEnv: string | null;
   saving?: boolean;
+  capturingAuth?: string | null;
 }>();
 
 const emit = defineEmits<{
@@ -18,6 +19,7 @@ const emit = defineEmits<{
   (e: "remove", env: string): void;
   (e: "add", env: NewEnvironment): void;
   (e: "update", env: string, next: EnvironmentInput): void;
+  (e: "captureAuth", env: string): void;
 }>();
 
 const confirm = useConfirm();
@@ -125,6 +127,27 @@ function confirmRemove(env: EnvironmentView) {
             :aria-label="`Delete ${env.name}`"
             v-tooltip.top="'Delete environment'"
             @click="confirmRemove(env)"
+          />
+        </div>
+        <div class="mt-2 flex items-center gap-2 pl-20">
+          <Tag
+            :severity="env.authStateExists ? 'success' : 'warn'"
+            :value="env.authStateExists ? 'auth ready' : 'auth missing'"
+            class="font-mono"
+          />
+          <span class="min-w-0 flex-1 truncate font-mono text-[11px] text-ink-3">
+            {{ env.authStatePath }}
+            <template v-if="env.authStateUpdatedAt"> · {{ env.authStateUpdatedAt }}</template>
+          </span>
+          <Button
+            label="Login once"
+            icon="pi pi-key"
+            size="small"
+            severity="secondary"
+            outlined
+            :loading="capturingAuth === env.name"
+            :disabled="saving || !!capturingAuth"
+            @click="emit('captureAuth', env.name)"
           />
         </div>
       </li>

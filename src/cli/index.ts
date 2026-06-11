@@ -56,6 +56,7 @@ program
   .description("Record a base navigation flow with `playwright codegen` (the selector source)")
   .option("--project <name>", "project to record for")
   .option("--env <name>", "environment whose URL to open (defaults to the project's default env)")
+  .option("--feature <name>", "feature to attach this recording to")
   .option("--name <name>", "recording name (default: base)")
   .option("--url <url>", "start URL (default: the chosen environment's url)")
   .action(async (flags) => recordCommand(flags));
@@ -95,6 +96,9 @@ feature
   .command("add <project> <name>")
   .description("Add (or update) a feature backed by a Google Sheet")
   .option("--sheet <sheetId>", "Google Sheet id holding this feature's test cases")
+  .option("--start-path <path>", "feature start path for recording (default: /)")
+  .option("--auth", "mark the feature as requiring auth")
+  .option("--no-auth", "mark the feature as public / unauthenticated")
   .action((projectName, name, flags) => featureAdd(projectName, name, flags));
 feature.command("list <project>").description("List a project's features").action((p) => featureList(p));
 feature.command("rm <project> <name>").description("Remove a feature").action((p, n) => featureRemove(p, n));

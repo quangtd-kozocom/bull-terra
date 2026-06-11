@@ -34,12 +34,15 @@ export interface Feature {
   project_id: number;
   name: string;
   sheet_id: string | null;
+  start_path: string;
+  requires_auth: 0 | 1;
   created_at: string;
 }
 
 export interface Recording {
   id: number;
   project_id: number;
+  feature_id: number | null;
   name: string;
   path: string;
   created_at: string;
