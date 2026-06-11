@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { api } from "./api";
-import type { NewEnvironment, ProjectView } from "./types";
+import type { EnvironmentInput, FeatureInput, NewEnvironment, ProjectView } from "./types";
 import { useRun } from "./composables/useRun";
 import Sidebar from "./components/Sidebar.vue";
 import FeatureCard from "./components/FeatureCard.vue";
@@ -34,16 +34,30 @@ function replaceProject(fresh: ProjectView) {
   if (fresh.name === selectedName.value) activeEnv.value = fresh.activeEnv;
 }
 
+function replaceRenamedProject(oldName: string, fresh: ProjectView) {
+  const i = projects.value.findIndex((p) => p.name === oldName);
+  if (i >= 0) projects.value[i] = fresh;
+  else replaceProject(fresh);
+  projects.value.sort((a, b) => a.name.localeCompare(b.name));
+  selectedName.value = fresh.name;
+  activeEnv.value = fresh.activeEnv;
+}
+
 async function load(keepSelection = true) {
   projects.value = await api.listProjects();
   if (!keepSelection || !selectedName.value) selectedName.value = projects.value[0]?.name ?? null;
 }
 onMounted(() => load());
 
-// When the selected project changes, sync the active env to its default.
+// Keep the active env valid as project data is refreshed.
 watch(selected, (p) => {
   if (p && (!activeEnv.value || !p.environments.some((e) => e.name === activeEnv.value)))
     activeEnv.value = p.activeEnv;
+});
+
+// Only auto-open/close settings when the actual project selection changes.
+watch(selectedName, () => {
+  const p = selected.value;
   showSettings.value = p ? !p.environments.length || !p.features.length : false;
 });
 
@@ -120,6 +134,36 @@ async function createProject(name: string) {
   }
 }
 
+async function renameProject(name: string) {
+  const nextName = window.prompt("Rename project", name)?.trim();
+  if (!nextName || nextName === name) return;
+  try {
+    const fresh = await api.updateProject(name, { name: nextName });
+    replaceRenamedProject(name, fresh);
+    flash(`Renamed project to ${nextName}.`);
+  } catch (e) {
+    flash(`Could not rename: ${(e as Error).message}`);
+  }
+}
+
+async function deleteProject(name: string) {
+  if (!window.confirm(`Delete project "${name}" from bull-terra? Specs and recordings stay on disk.`))
+    return;
+  try {
+    await api.removeProject(name);
+    const wasSelected = selectedName.value === name;
+    const nextProjects = projects.value.filter((p) => p.name !== name);
+    projects.value = nextProjects;
+    if (wasSelected) {
+      selectedName.value = nextProjects[0]?.name ?? null;
+      activeEnv.value = selected.value?.activeEnv ?? null;
+    }
+    flash(`Deleted project ${name}.`);
+  } catch (e) {
+    flash(`Could not delete: ${(e as Error).message}`);
+  }
+}
+
 // ── env / feature management ─────────────────────────────────────────────────
 const guard = (fn: () => Promise<ProjectView>) =>
   fn()
@@ -128,14 +172,24 @@ const guard = (fn: () => Promise<ProjectView>) =>
 
 const addEnv = (env: NewEnvironment) =>
   selected.value && guard(() => api.addEnvironment(selected.value!.name, env));
+const updateEnv = (env: string, next: EnvironmentInput) =>
+  selected.value && guard(() => api.updateEnvironment(selected.value!.name, env, next));
 const setDefaultEnv = (env: string) =>
   selected.value && guard(() => api.setDefaultEnvironment(selected.value!.name, env));
-const removeEnv = (env: string) =>
-  selected.value && guard(() => api.removeEnvironment(selected.value!.name, env));
+const removeEnv = (env: string) => {
+  if (!selected.value || !window.confirm(`Delete environment "${env}"? Run history stays recorded.`))
+    return;
+  return guard(() => api.removeEnvironment(selected.value!.name, env));
+};
 const addFeature = (f: { name: string; sheetId?: string }) =>
   selected.value && guard(() => api.addFeature(selected.value!.name, f));
-const removeFeature = (f: string) =>
-  selected.value && guard(() => api.removeFeature(selected.value!.name, f));
+const updateFeature = (f: string, next: FeatureInput) =>
+  selected.value && guard(() => api.updateFeature(selected.value!.name, f, next));
+const removeFeature = (f: string) => {
+  if (!selected.value || !window.confirm(`Remove feature "${f}"? Generated specs stay on disk.`))
+    return;
+  return guard(() => api.removeFeature(selected.value!.name, f));
+};
 
 async function showTrace(path: string) {
   await api.showTrace(path).catch((e) => flash(`Trace: ${(e as Error).message}`));
@@ -160,6 +214,8 @@ const gauges = computed(() => {
       :selected="selectedName"
       @select="(n) => (selectedName = n)"
       @add="showAdd = true"
+      @rename="renameProject"
+      @remove="deleteProject"
     />
 
     <main class="flex min-w-0 flex-1 flex-col">
@@ -188,14 +244,14 @@ const gauges = computed(() => {
 
             <div class="flex items-center gap-2">
               <button
-                class="rounded-sm border border-line px-3 py-1.5 text-xs text-ink-2 transition hover:border-accent hover:text-accent"
-                :class="showSettings ? 'border-accent text-accent' : ''"
+                class="rounded-sm border border-line-strong bg-card-2 px-3 py-1.5 text-xs font-medium text-ink transition hover:border-accent hover:text-accent"
+                :class="showSettings ? 'border-accent bg-accent/12 text-accent' : ''"
                 @click="showSettings = !showSettings"
               >
                 ⚙ manage
               </button>
               <button
-                class="rounded-sm border border-line px-3 py-1.5 text-xs text-ink-2 transition hover:border-accent hover:text-accent disabled:opacity-40"
+                class="rounded-sm border border-line-strong bg-card px-3 py-1.5 text-xs font-medium text-ink transition hover:border-accent hover:text-accent disabled:opacity-40"
                 :disabled="recording"
                 @click="record"
               >
@@ -235,10 +291,12 @@ const gauges = computed(() => {
             @set-default="setDefaultEnv"
             @remove="removeEnv"
             @add="addEnv"
+            @update="updateEnv"
           />
           <FeatureManager
             :features="selected.features"
             @add="addFeature"
+            @update="updateFeature"
             @remove="removeFeature"
           />
         </div>

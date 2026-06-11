@@ -1,4 +1,4 @@
-import type { NewEnvironment, ProjectView, RunEvent } from "./types";
+import type { EnvironmentInput, FeatureInput, NewEnvironment, ProjectView, RunEvent } from "./types";
 
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? res.statusText);
@@ -24,12 +24,26 @@ export const api = {
 
   addProject: (name: string) => post("/api/projects", { name }).then((r) => json<ProjectView>(r)),
 
+  updateProject: (name: string, next: { name: string }) =>
+    fetch(`/api/projects/${enc(name)}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(next),
+    }).then((r) => json<ProjectView>(r)),
+
   removeProject: (name: string) =>
     fetch(`/api/projects/${enc(name)}`, { method: "DELETE" }).then((r) => json(r)),
 
   // environments
   addEnvironment: (name: string, env: NewEnvironment) =>
     post(`/api/projects/${enc(name)}/environments`, env).then((r) => json<ProjectView>(r)),
+
+  updateEnvironment: (name: string, env: string, next: EnvironmentInput) =>
+    fetch(`/api/projects/${enc(name)}/environments/${enc(env)}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(next),
+    }).then((r) => json<ProjectView>(r)),
 
   setDefaultEnvironment: (name: string, env: string) =>
     fetch(`/api/projects/${enc(name)}/environments/${enc(env)}/default`, { method: "PUT" }).then(
@@ -44,6 +58,13 @@ export const api = {
   // features
   addFeature: (name: string, feature: { name: string; sheetId?: string }) =>
     post(`/api/projects/${enc(name)}/features`, feature).then((r) => json<ProjectView>(r)),
+
+  updateFeature: (name: string, feature: string, next: FeatureInput) =>
+    fetch(`/api/projects/${enc(name)}/features/${enc(feature)}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(next),
+    }).then((r) => json<ProjectView>(r)),
 
   removeFeature: (name: string, feature: string) =>
     fetch(`/api/projects/${enc(name)}/features/${enc(feature)}`, { method: "DELETE" }).then((r) =>

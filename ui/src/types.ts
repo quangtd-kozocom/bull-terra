@@ -64,3 +64,10 @@ export interface NewEnvironment {
   passVar?: string;
   isDefault?: boolean;
 }
+
+export type EnvironmentInput = Omit<NewEnvironment, "isDefault">;
+
+export interface FeatureInput {
+  name: string;
+  sheetId?: string;
+}

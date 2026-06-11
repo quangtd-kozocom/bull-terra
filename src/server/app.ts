@@ -1,6 +1,6 @@
 import { serve } from "@hono/node-server";
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync } from "node:fs";
 import { dirname, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Hono } from "hono";
@@ -29,6 +29,48 @@ const MIME: Record<string, string> = {
   ".png": "image/png",
   ".ico": "image/x-icon",
 };
+
+const safeAssetName = (s: string) => s.replace(/[^a-zA-Z0-9._-]/g, "_");
+
+function moveIfPossible(from: string, to: string): void {
+  if (!existsSync(from) || from === to) return;
+  if (existsSync(to)) throw new Error(`target already exists: ${to}`);
+  mkdirSync(dirname(to), { recursive: true });
+  renameSync(from, to);
+}
+
+function assertMovePossible(from: string, to: string): void {
+  if (existsSync(from) && from !== to && existsSync(to)) throw new Error(`target already exists: ${to}`);
+}
+
+function projectAuthStateMoves(paths: ProjectPaths, oldName: string, newName: string): [string, string][] {
+  if (!existsSync(paths.authDir)) return [];
+  const oldPrefix = `${safeAssetName(oldName)}-`;
+  const newPrefix = `${safeAssetName(newName)}-`;
+  const moves: [string, string][] = [];
+  for (const entry of readdirSync(paths.authDir)) {
+    if (!entry.startsWith(oldPrefix)) continue;
+    moves.push([join(paths.authDir, entry), join(paths.authDir, `${newPrefix}${entry.slice(oldPrefix.length)}`)]);
+  }
+  return moves;
+}
+
+function assertProjectMoveTargets(paths: ProjectPaths, oldName: string, newName: string): void {
+  assertMovePossible(projectSpecsDir(paths, oldName), projectSpecsDir(paths, newName));
+  assertMovePossible(projectRecordingsDir(paths, oldName), projectRecordingsDir(paths, newName));
+  for (const [from, to] of projectAuthStateMoves(paths, oldName, newName)) assertMovePossible(from, to);
+}
+
+function moveProjectAuthStates(paths: ProjectPaths, oldName: string, newName: string): void {
+  for (const [from, to] of projectAuthStateMoves(paths, oldName, newName)) moveIfPossible(from, to);
+}
+
+function moveEnvAuthState(paths: ProjectPaths, projectName: string, oldName: string, newName: string): void {
+  moveIfPossible(
+    join(paths.authDir, `${safeAssetName(projectName)}-${safeAssetName(oldName)}.json`),
+    join(paths.authDir, `${safeAssetName(projectName)}-${safeAssetName(newName)}.json`),
+  );
+}
 
 export function createApp(opts: ServerOptions): Hono {
   const { paths } = opts;
@@ -64,6 +106,26 @@ export function createApp(opts: ServerOptions): Hono {
     return c.json({ ok: true });
   });
 
+  app.put("/api/projects/:name", async (c) => {
+    const p = getProjectOr404(c.req.param("name"));
+    if (!p) return c.json({ error: "not found" }, 404);
+    const body = await c.req.json<{ name: string }>().catch(() => null);
+    const name = body?.name?.trim();
+    if (!name) return c.json({ error: "name is required" }, 400);
+    if (name !== p.name && db.getProjectByName(name))
+      return c.json({ error: `project "${name}" already exists` }, 409);
+    try {
+      assertProjectMoveTargets(paths, p.name, name);
+      const renamed = db.renameProject(p.id, name);
+      moveIfPossible(projectSpecsDir(paths, p.name), projectSpecsDir(paths, name));
+      moveIfPossible(projectRecordingsDir(paths, p.name), projectRecordingsDir(paths, name));
+      moveProjectAuthStates(paths, p.name, name);
+      return c.json(buildProjectView(db, paths, renamed));
+    } catch (e) {
+      return c.json({ error: (e as Error).message }, 409);
+    }
+  });
+
   // ---- environments ------------------------------------------------------
   app.post("/api/projects/:name/environments", async (c) => {
     const p = getProjectOr404(c.req.param("name"));
@@ -96,6 +158,34 @@ export function createApp(opts: ServerOptions): Hono {
     return c.json(buildProjectView(db, paths, p));
   });
 
+  app.put("/api/projects/:name/environments/:env", async (c) => {
+    const p = getProjectOr404(c.req.param("name"));
+    if (!p) return c.json({ error: "not found" }, 404);
+    const currentName = c.req.param("env");
+    const current = db.getEnvironment(p.id, currentName);
+    if (!current) return c.json({ error: "no such environment" }, 404);
+    const body = await c.req
+      .json<{ name: string; url: string; userVar?: string | null; passVar?: string | null }>()
+      .catch(() => null);
+    const name = body?.name?.trim();
+    const url = body?.url?.trim();
+    if (!name || !url) return c.json({ error: "name and url are required" }, 400);
+    const conflict = name !== currentName ? db.getEnvironment(p.id, name) : undefined;
+    if (conflict) return c.json({ error: `environment "${name}" already exists` }, 409);
+    try {
+      moveEnvAuthState(paths, p.name, currentName, name);
+      db.updateEnvironment(p.id, currentName, {
+        name,
+        url,
+        userVar: body?.userVar?.trim() || null,
+        passVar: body?.passVar?.trim() || null,
+      });
+      return c.json(buildProjectView(db, paths, p, name));
+    } catch (e) {
+      return c.json({ error: (e as Error).message }, 409);
+    }
+  });
+
   // ---- features ----------------------------------------------------------
   app.post("/api/projects/:name/features", async (c) => {
     const p = getProjectOr404(c.req.param("name"));
@@ -111,6 +201,32 @@ export function createApp(opts: ServerOptions): Hono {
     if (!p) return c.json({ error: "not found" }, 404);
     db.deleteFeature(p.id, c.req.param("feature"));
     return c.json(buildProjectView(db, paths, p));
+  });
+
+  app.put("/api/projects/:name/features/:feature", async (c) => {
+    const p = getProjectOr404(c.req.param("name"));
+    if (!p) return c.json({ error: "not found" }, 404);
+    const currentName = c.req.param("feature");
+    const current = db.getFeature(p.id, currentName);
+    if (!current) return c.json({ error: "no such feature" }, 404);
+    const body = await c.req.json<{ name: string; sheetId?: string | null }>().catch(() => null);
+    const name = body?.name?.trim();
+    if (!name) return c.json({ error: "name is required" }, 400);
+    const conflict = name !== currentName ? db.getFeature(p.id, name) : undefined;
+    if (conflict) return c.json({ error: `feature "${name}" already exists` }, 409);
+    try {
+      moveIfPossible(
+        join(projectSpecsDir(paths, p.name), `${currentName}.spec.ts`),
+        join(projectSpecsDir(paths, p.name), `${name}.spec.ts`),
+      );
+      db.updateFeature(p.id, currentName, {
+        name,
+        sheetId: body?.sheetId?.trim() || null,
+      });
+      return c.json(buildProjectView(db, paths, p));
+    } catch (e) {
+      return c.json({ error: (e as Error).message }, 409);
+    }
   });
 
   app.get("/api/projects/:name/runs/:runId", (c) => {

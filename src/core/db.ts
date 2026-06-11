@@ -133,6 +133,11 @@ export class Db {
     this.raw.prepare(`DELETE FROM projects WHERE id = ?`).run(id);
   }
 
+  renameProject(id: number, name: string): Project {
+    this.raw.prepare(`UPDATE projects SET name = ? WHERE id = ?`).run(name, id);
+    return this.getProject(id)!;
+  }
+
   // ---- environments ------------------------------------------------------
 
   upsertEnvironment(
@@ -219,6 +224,19 @@ export class Db {
     return true;
   }
 
+  updateEnvironment(
+    projectId: number,
+    currentName: string,
+    next: { name: string; url: string; userVar?: string | null; passVar?: string | null },
+  ): Environment | undefined {
+    const existing = this.getEnvironment(projectId, currentName);
+    if (!existing) return undefined;
+    this.raw
+      .prepare(`UPDATE environments SET name = ?, url = ?, user_var = ?, pass_var = ? WHERE id = ?`)
+      .run(next.name, next.url, next.userVar ?? null, next.passVar ?? null, existing.id);
+    return this.getEnvironmentById(existing.id);
+  }
+
   // ---- features ----------------------------------------------------------
 
   upsertFeature(projectId: number, name: string, sheetId?: string | null): Feature {
@@ -256,6 +274,43 @@ export class Db {
       .prepare(`DELETE FROM features WHERE project_id = ? AND name = ?`)
       .run(projectId, name);
     return info.changes > 0;
+  }
+
+  updateFeature(
+    projectId: number,
+    currentName: string,
+    next: { name: string; sheetId?: string | null },
+  ): Feature | undefined {
+    const existing = this.getFeature(projectId, currentName);
+    if (!existing) return undefined;
+    const tx = this.raw.transaction(() => {
+      this.raw
+        .prepare(`UPDATE features SET name = ?, sheet_id = ? WHERE id = ?`)
+        .run(next.name, next.sheetId ?? null, existing.id);
+      this.raw
+        .prepare(`UPDATE runs SET feature = ? WHERE project_id = ? AND feature = ?`)
+        .run(next.name, projectId, currentName);
+
+      const oldPrefix = `${currentName}.spec.ts>`;
+      const newPrefix = `${next.name}.spec.ts>`;
+      this.raw
+        .prepare(
+          `UPDATE results
+           SET test_id = ? || substr(test_id, ? + 1)
+           WHERE run_id IN (SELECT id FROM runs WHERE project_id = ?)
+             AND substr(test_id, 1, ?) = ?`,
+        )
+        .run(newPrefix, oldPrefix.length, projectId, oldPrefix.length, oldPrefix);
+      this.raw
+        .prepare(
+          `UPDATE baselines
+           SET test_id = ? || substr(test_id, ? + 1)
+           WHERE project_id = ? AND substr(test_id, 1, ?) = ?`,
+        )
+        .run(newPrefix, oldPrefix.length, projectId, oldPrefix.length, oldPrefix);
+    });
+    tx();
+    return this.getFeatureById(existing.id);
   }
 
   // ---- recordings --------------------------------------------------------

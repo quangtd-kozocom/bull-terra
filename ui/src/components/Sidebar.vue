@@ -11,6 +11,8 @@ defineProps<{
 const emit = defineEmits<{
   (e: "select", name: string): void;
   (e: "add"): void;
+  (e: "rename", name: string): void;
+  (e: "remove", name: string): void;
 }>();
 
 function health(p: ProjectView): { color: string; pct: number } {
@@ -52,32 +54,49 @@ function health(p: ProjectView): { color: string; pct: number } {
       <p v-if="!projects.length" class="px-2 py-6 text-center text-xs text-ink-3">
         No projects yet.<br />Create one to begin.
       </p>
-      <button
+      <div
         v-for="p in projects"
         :key="p.id"
-        class="group mb-1 flex w-full items-center gap-3 border-l-2 px-3 py-2.5 text-left transition"
+        class="group mb-1 flex w-full items-center gap-2 border-l-2 py-1.5 pl-3 pr-2 transition"
         :class="
           selected === p.name
             ? 'border-accent bg-accent/8'
             : 'border-transparent hover:bg-card-2'
         "
-        @click="emit('select', p.name)"
       >
-        <span class="h-2 w-2 shrink-0 rounded-full" :style="{ backgroundColor: health(p).color }" />
-        <span class="min-w-0 flex-1">
-          <span
-            class="block truncate text-sm font-medium"
-            :class="selected === p.name ? 'text-ink' : 'text-ink-2'"
-            >{{ p.name }}</span
-          >
-          <span class="block truncate text-[11px] text-ink-3">
-            {{ p.environments.length }} env · {{ p.features.length }} feat
+        <button class="flex min-w-0 flex-1 items-center gap-3 text-left" @click="emit('select', p.name)">
+          <span class="h-2 w-2 shrink-0 rounded-full" :style="{ backgroundColor: health(p).color }" />
+          <span class="min-w-0 flex-1">
+            <span
+              class="block truncate text-sm font-medium"
+              :class="selected === p.name ? 'text-ink' : 'text-ink-2'"
+              >{{ p.name }}</span
+            >
+            <span class="block truncate text-[11px] text-ink-3">
+              {{ p.environments.length }} env · {{ p.features.length }} feat
+            </span>
           </span>
+          <span class="tnum shrink-0 font-mono text-[11px] text-ink-3">
+            {{ p.totals.passed }}/{{ p.totals.tests }}
+          </span>
+        </button>
+        <span class="flex shrink-0 items-center gap-1 opacity-100 sm:opacity-0 sm:transition sm:group-hover:opacity-100">
+          <button
+            class="grid h-6 w-6 place-items-center rounded-sm border border-line text-[11px] text-ink-3 transition hover:border-accent hover:text-accent"
+            title="Rename project"
+            @click.stop="emit('rename', p.name)"
+          >
+            ✎
+          </button>
+          <button
+            class="grid h-6 w-6 place-items-center rounded-sm border border-line text-[11px] text-ink-3 transition hover:border-fail hover:text-fail"
+            title="Delete project"
+            @click.stop="emit('remove', p.name)"
+          >
+            ✕
+          </button>
         </span>
-        <span class="tnum font-mono text-[11px] text-ink-3">
-          {{ p.totals.passed }}/{{ p.totals.tests }}
-        </span>
-      </button>
+      </div>
     </nav>
 
     <footer class="flex items-center justify-between border-t border-line px-4 py-3">
