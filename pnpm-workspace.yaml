@@ -1,0 +1,8 @@
+packages:
+  - "ui"
+
+# better-sqlite3 compiles native bindings and esbuild fetches its binary; pnpm
+# blocks dependency build scripts by default, so allow these explicitly.
+allowBuilds:
+  better-sqlite3: true
+  esbuild: true

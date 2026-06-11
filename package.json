@@ -1,0 +1,58 @@
+{
+  "name": "@kozocom/bull-terra",
+  "version": "0.1.0",
+  "description": "Local, generic UI-testing harness: turn Google Sheet test cases into runnable Playwright tests with a live dashboard and a regression-aware CLI gate.",
+  "type": "module",
+  "license": "MIT",
+  "author": "quangtd@kozo-japan.com",
+  "bin": {
+    "bull-terra": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "templates",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@11.5.2",
+  "scripts": {
+    "dev:ui": "pnpm --filter ui dev",
+    "dev:server": "tsx watch src/cli/index.ts serve --dev",
+    "build:ui": "pnpm --filter ui build",
+    "build:cli": "tsup",
+    "build": "pnpm run build:ui && pnpm run build:cli",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "cli": "tsx src/cli/index.ts"
+  },
+  "keywords": [
+    "playwright",
+    "testing",
+    "regression",
+    "ui-testing",
+    "google-sheets",
+    "claude-code"
+  ],
+  "dependencies": {
+    "@hono/node-server": "^2.0.4",
+    "better-sqlite3": "^12.10.0",
+    "commander": "^15.0.0",
+    "dotenv": "^17.4.2",
+    "hono": "^4.12.25",
+    "open": "^11.0.0"
+  },
+  "peerDependencies": {
+    "@playwright/test": ">=1.40.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.60.0",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^25.9.2",
+    "tsup": "^8.5.1",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.8"
+  }
+}

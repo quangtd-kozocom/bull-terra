@@ -1,0 +1,47 @@
+// Mirrors the server's view + event shapes (src/server/views.ts, src/core/types.ts).
+
+export interface TestView {
+  testId: string;
+  tcId: string | null;
+  title: string;
+  status: string;
+  baseline: string | null;
+  error: string | null;
+  tracePath: string | null;
+  durationMs: number | null;
+}
+
+export interface FeatureView {
+  feature: string;
+  specRelPath: string;
+  tests: TestView[];
+  counts: Record<string, number>;
+}
+
+export interface ProjectView {
+  id: number;
+  name: string;
+  url: string;
+  sheet_id: string | null;
+  created_at: string;
+  features: FeatureView[];
+  recordings: { id: number; name: string; path: string }[];
+  recentRuns: { id: number; feature: string | null; status: string; started_at: string }[];
+  totals: { tests: number; passed: number; failed: number; never: number };
+}
+
+export interface GateVerdict {
+  regressions: { title: string; error: string | null }[];
+  newFailures: { title: string }[];
+  quarantined: { title: string }[];
+  passed: { title: string }[];
+  exitCode: 0 | 1;
+}
+
+export type RunEvent =
+  | { type: "run-start"; runId: number; feature: string | null }
+  | { type: "test-begin"; title: string }
+  | { type: "test-end"; title: string; status: string; durationMs: number }
+  | { type: "stdout"; line: string }
+  | { type: "stderr"; line: string }
+  | { type: "run-end"; runId: number; verdict: GateVerdict; status: string };
