@@ -32,7 +32,6 @@ export interface ProjectPaths {
   envPath: string;
   envExamplePath: string;
   playwrightConfig: string;
-  skillsDir: string;
 }
 
 export function projectPaths(root: string = findProjectRoot()): ProjectPaths {
@@ -46,7 +45,6 @@ export function projectPaths(root: string = findProjectRoot()): ProjectPaths {
     envPath: join(root, ".env"),
     envExamplePath: join(root, ".env.example"),
     playwrightConfig: join(root, "playwright.config.ts"),
-    skillsDir: join(root, ".claude", "skills"),
   };
 }
 

@@ -29,8 +29,7 @@ program
 
 program
   .command("init")
-  .description("Install Chromium, drop the /gen-tests skill, create data.db + config templates")
-  .option("--upgrade", "refresh only the gen-tests skill template; leave data.db and .env intact")
+  .description("Install Chromium, create data.db + config templates")
   .option("--no-browser", "skip installing Chromium")
   .action((flags) => initCommand(flags));
 

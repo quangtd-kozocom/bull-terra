@@ -19,7 +19,8 @@
 - `src/core/`: project discovery, DB, runner, gate, Playwright integration, writeback.
 - `src/server/`: Hono server, API views, run manager, dashboard serving.
 - `ui/src/`: Vue dashboard components, API client, types, composables, styles.
-- `templates/`: files copied into initialized projects, including `/gen-tests`.
+- `templates/`: files copied into initialized projects (playwright config, global-setup, .env.example).
+- `skills/`: the published `gen-tests` skill, installed by consumers via skills.sh.
 - `.agents/skills/`: local skills used by coding agents.
 
 ## Commands

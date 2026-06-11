@@ -16,10 +16,8 @@ Sheets, then generate and run real Playwright tests locally or in CI.
 ```bash
 npm i -g bull-terra
 bull-terra init
+npx skills add quangtd-kozocom/bull-terra
 ```
-
-`init` installs Chromium, creates local config/db files, and installs the
-Claude `/gen-tests` skill.
 
 ## Recommended: Use the Dashboard
 
@@ -99,7 +97,7 @@ now fails. New tests that never passed are reported but do not fail the gate.
 
 | Command | Purpose |
 |---|---|
-| `bull-terra init [--upgrade] [--no-browser]` | Create local files, install Chromium, install/update `/gen-tests`. |
+| `bull-terra init [--no-browser]` | Create local files and install Chromium. |
 | `bull-terra serve [-p <port>] [--no-open] [--dev]` | Start the dashboard. |
 | `bull-terra record --project <p> --env <e>` | Record a base flow for selectors. |
 | `bull-terra run --project <p> --env <e> --all` | Run the regression gate for all features. |

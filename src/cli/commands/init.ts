@@ -6,7 +6,6 @@ import { resolvePlaywrightCli } from "../../core/playwright.js";
 import { c, resolvePaths, templatesDir } from "../util.js";
 
 export interface InitFlags {
-  upgrade?: boolean;
   browser?: boolean; // commander --no-browser => browser:false
 }
 
@@ -16,12 +15,6 @@ function copyFile(src: string, dest: string, { overwrite }: { overwrite: boolean
   mkdirSync(dirname(dest), { recursive: true });
   cpSync(src, dest);
   return true;
-}
-
-function copyDir(src: string, dest: string): void {
-  if (!existsSync(src)) return;
-  mkdirSync(dest, { recursive: true });
-  cpSync(src, dest, { recursive: true });
 }
 
 /** Append missing lines to (or create) the project's .gitignore. */
@@ -46,26 +39,15 @@ function ensureGitignore(root: string): void {
 }
 
 /**
- * `bull-terra init` (PRD §10): install Chromium, drop the /gen-tests skill,
- * create data.db, write .env.example + config templates, print setup pointers.
- * `--upgrade` refreshes ONLY the skill template, leaving data.db and .env intact.
+ * `bull-terra init` (PRD §10): install Chromium, create data.db, write
+ * .env.example + config templates, print setup pointers. The /gen-tests skill
+ * is published separately and installed via skills.sh (see README).
  */
 export function initCommand(flags: InitFlags): void {
   const paths = resolvePaths();
   const tpl = templatesDir();
   const ok = (s: string) => console.log(`  ${c.green("✓")} ${s}`);
   const skip = (s: string) => console.log(`  ${c.dim("•")} ${c.dim(s)}`);
-
-  // The generation contract — always refreshed (this is what --upgrade targets).
-  const skillSrc = join(tpl, "gen-tests");
-  const skillDest = join(paths.skillsDir, "gen-tests");
-  copyDir(skillSrc, skillDest);
-  ok(`gen-tests skill ${flags.upgrade ? "refreshed" : "installed"} → ${skillDest}`);
-
-  if (flags.upgrade) {
-    console.log(c.green(c.bold("\nUpgrade complete.")) + c.dim(" data.db and .env left untouched.\n"));
-    return;
-  }
 
   // Database
   if (existsSync(paths.dbPath)) skip("data.db already exists");
@@ -79,7 +61,6 @@ export function initCommand(flags: InitFlags): void {
     [join(tpl, "playwright.config.ts"), paths.playwrightConfig],
     [join(tpl, "global-setup.ts"), join(paths.root, "tests", "global-setup.ts")],
     [join(tpl, ".env.example"), paths.envExamplePath],
-    [join(tpl, "github-workflow.yml"), join(paths.root, ".github", "workflows", "bull-terra.yml")],
   ];
   for (const [src, dest] of files) {
     if (copyFile(src, dest, { overwrite: false })) ok(`wrote ${dest.replace(paths.root + "/", "")}`);
@@ -115,16 +96,18 @@ export function initCommand(flags: InitFlags): void {
 function printNextSteps(): void {
   console.log(`
 ${c.bold("Next steps")}
-  1. ${c.cyan("Register a project")}      bull-terra project add <name>
-  2. ${c.cyan("Add environment(s)")}     bull-terra env add <name> stg <url> --default --user-var APP_STG_USER --pass-var APP_STG_PASS
-  3. ${c.cyan("Add feature(s)")}         bull-terra feature add <name> <feature> --sheet <sheetId>
-  4. ${c.cyan("Record a base flow")}     bull-terra record --project <name> --env stg
-  5. ${c.cyan("Set up Google Sheets MCP")} the /gen-tests skill reads test cases via the
+  1. ${c.cyan("Install the /gen-tests skill")} npx skills add quangtd-kozocom/bull-terra
+     ${c.dim("publishes the gen-tests skill into .agents/skills via skills.sh")}
+  2. ${c.cyan("Register a project")}      bull-terra project add <name>
+  3. ${c.cyan("Add environment(s)")}     bull-terra env add <name> stg <url> --default --user-var APP_STG_USER --pass-var APP_STG_PASS
+  4. ${c.cyan("Add feature(s)")}         bull-terra feature add <name> <feature> --sheet <sheetId>
+  5. ${c.cyan("Record a base flow")}     bull-terra record --project <name> --env stg
+  6. ${c.cyan("Set up Google Sheets MCP")} the /gen-tests skill reads test cases via the
      ${c.dim("kozocom-mcp / terra-mcp Google MCP. Authenticate it in Claude Code (OAuth);")}
      ${c.dim("bull-terra cannot provision your Google account for you.")}
-  6. ${c.cyan("Add credentials")}         copy .env.example → .env and fill the per-env vars you named
-  7. ${c.cyan("Generate tests")}          claude "/gen-tests <name> <feature>"
-  8. ${c.cyan("Run the gate")}            bull-terra run --project <name> --env stg --all
-  9. ${c.cyan("Open the dashboard")}      bull-terra serve
+  7. ${c.cyan("Add credentials")}         copy .env.example → .env and fill the per-env vars you named
+  8. ${c.cyan("Generate tests")}          claude "/gen-tests <name> <feature>"
+  9. ${c.cyan("Run the gate")}            bull-terra run --project <name> --env stg --all
+ 10. ${c.cyan("Open the dashboard")}      bull-terra serve
 `);
 }

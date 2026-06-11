@@ -40,3 +40,5 @@ coverage/
 *.sln
 *.sw?
 *.local
+# bull-terra
+auth/
