@@ -24,7 +24,6 @@ Key concepts:
 - `src/core/`: project discovery, DB, runner, gate, Playwright integration, writeback. Notable modules:
   - `paths.ts`: path helpers; use `safePathSegment` and `featureRecording*` for all on-disk names.
   - `auth.ts`: storageState location/freshness, `requires_auth` gating, `featureStartUrl`, start-path normalization.
-  - `recordings.ts`: backup/rotate prior recordings into `.history/`.
   - `manual-tests.ts`: `TC` id normalization, codegen-body extraction, and appending promoted tests into the `<bull-terra:manual>` region.
   - `schema.ts`: Drizzle schema plus idempotent migrations (`migrateFeatureScopedRecordings`, `migrateFeatureRecordingOptions`, etc.).
 - `src/server/`: Hono server, API views, run manager, dashboard serving. New routes cover auth capture, recording preview/delete/promote, per-feature recording creation, and clearing a feature's generated tests.

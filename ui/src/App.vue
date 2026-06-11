@@ -134,7 +134,7 @@ function confirmDeleteRecording(recording: RecordingView) {
   const scope = recording.feature ? `${recording.feature}/${recording.name}` : recording.name;
   confirm.require({
     header: "Delete recording",
-    message: `Delete recording "${scope}"? The file moves to .history.`,
+    message: `Delete recording "${scope}"? This permanently deletes the file.`,
     icon: "pi pi-exclamation-triangle",
     rejectLabel: "Cancel",
     acceptLabel: "Delete recording",

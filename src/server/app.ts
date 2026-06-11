@@ -1,6 +1,6 @@
 import { serve } from "@hono/node-server";
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, unlinkSync } from "node:fs";
 import { createRequire } from "node:module";
 import { basename, dirname, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -24,7 +24,6 @@ import {
   type ProjectPaths,
 } from "../core/paths.js";
 import { chromiumInstalled, resolvePlaywrightCli } from "../core/playwright.js";
-import { backupExistingRecording } from "../core/recordings.js";
 import { normalizeSecretVars } from "../core/secret-vars.js";
 import type { Environment, RunEvent } from "../core/types.js";
 import { RunManager } from "./runManager.js";
@@ -353,8 +352,7 @@ export function createApp(opts: ServerOptions): Hono {
     const recording = db.getRecordingById(Number(c.req.param("recordingId")));
     if (!recording || recording.project_id !== p.id) return c.json({ error: "recording not found" }, 404);
     db.deleteRecording(recording.id);
-    // Move the file aside rather than hard-deleting — consistent with re-recording.
-    backupExistingRecording(recording.path);
+    if (existsSync(recording.path)) unlinkSync(recording.path);
     return c.json(buildProjectView(db, paths, p, c.req.query("env")));
   });
 
@@ -422,7 +420,6 @@ export function createApp(opts: ServerOptions): Hono {
     loadStoragePath?: string;
   }): Promise<{ ok: boolean; err: string }> {
     const cli = resolvePlaywrightCli(paths.root);
-    const backupPath = backupExistingRecording(opts.outPath);
     const storageArgs = opts.loadStoragePath ? ["--load-storage", opts.loadStoragePath] : [];
     const result = await new Promise<{ ok: boolean; err: string }>((resolve) => {
       let stderr = "";
@@ -446,9 +443,6 @@ export function createApp(opts: ServerOptions): Hono {
       child.on("error", (e) => resolve({ ok: false, err: e.message }));
       child.on("close", () => resolve({ ok: existsSync(opts.outPath), err: stderr.trim() }));
     });
-    if (!result.ok && backupPath && !existsSync(opts.outPath)) {
-      renameSync(backupPath, opts.outPath);
-    }
     return result;
   }
 

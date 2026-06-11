@@ -1,10 +1,9 @@
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, renameSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { authRequirementError, authStateInfo, featureStartUrl } from "../../core/auth.js";
 import { featureRecordingPath, projectRecordingsDir, safePathSegment } from "../../core/paths.js";
 import { chromiumInstalled, resolvePlaywrightCli } from "../../core/playwright.js";
-import { backupExistingRecording } from "../../core/recordings.js";
 import { c, CliError, openDb, resolvePaths, resolveEnvironment, resolveProject } from "../util.js";
 
 export interface RecordFlags {
@@ -69,8 +68,6 @@ export function recordCommand(flags: RecordFlags): Promise<void> {
     `${c.bold("bull-terra")} recording ${c.cyan(`${label} @ ${env.name}`)} → ${c.dim(outPath)}\n` +
       c.dim("  A browser will open. Click through login + the flow, then close it to save.\n"),
   );
-  const backupPath = backupExistingRecording(outPath);
-  if (backupPath) console.log(c.dim(`  Previous recording backed up: ${backupPath}\n`));
 
   return new Promise<void>((resolve, reject) => {
     const child = spawn(
@@ -98,7 +95,6 @@ export function recordCommand(flags: RecordFlags): Promise<void> {
           c.dim(`  Generate tests that reuse it: claude "/gen-tests ${project.name} ${feature?.name ?? "<feature>"}"`),
         );
       } else {
-        if (backupPath && !existsSync(outPath)) renameSync(backupPath, outPath);
         console.log(c.yellow("\nNo recording file was produced (codegen closed without saving)."));
       }
       db.close();
