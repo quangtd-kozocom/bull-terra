@@ -1,88 +1,117 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { onMounted, shallowRef } from "vue";
+import { storeToRefs } from "pinia";
+import { useClipboard } from "@vueuse/core";
+import Button from "primevue/button";
+import ConfirmDialog from "primevue/confirmdialog";
+import Select from "primevue/select";
+import Toast from "primevue/toast";
+import { useConfirm } from "primevue/useconfirm";
+import { useToast } from "primevue/usetoast";
 import { api } from "./api";
-import type { EnvironmentInput, FeatureInput, NewEnvironment, ProjectView } from "./types";
+import type { EnvironmentInput, FeatureInput, NewEnvironment } from "./types";
 import { useRun } from "./composables/useRun";
+import { useProjectsStore } from "./stores/projects";
 import Sidebar from "./components/Sidebar.vue";
 import FeatureCard from "./components/FeatureCard.vue";
 import RunConsole from "./components/RunConsole.vue";
-import AddProjectModal from "./components/AddProjectModal.vue";
 import EnvManager from "./components/EnvManager.vue";
 import FeatureManager from "./components/FeatureManager.vue";
+import ProjectDialog from "./components/ProjectDialog.vue";
 
-const projects = ref<ProjectView[]>([]);
-const selectedName = ref<string | null>(null);
-const activeEnv = ref<string | null>(null);
-const showAdd = ref(false);
-const showSettings = ref(false);
-const toast = ref("");
-const recording = ref(false);
+const projectsStore = useProjectsStore();
+const { projects, selectedName, activeEnv, showSettings, saving, selected, hasEnv, gauges } =
+  storeToRefs(projectsStore);
 const { state: run, start, stop } = useRun();
+const { copy } = useClipboard();
+const confirm = useConfirm();
+const toast = useToast();
 
-const selected = computed(() => projects.value.find((p) => p.name === selectedName.value) ?? null);
-const hasEnv = computed(() => !!selected.value?.environments.length);
+const recording = shallowRef(false);
+const projectDialogVisible = shallowRef(false);
+const projectDialogMode = shallowRef<"create" | "rename">("create");
+const editingProjectName = shallowRef("");
 
-function flash(msg: string) {
-  toast.value = msg;
-  setTimeout(() => (toast.value = ""), 3200);
-}
-
-function replaceProject(fresh: ProjectView) {
-  const i = projects.value.findIndex((p) => p.name === fresh.name);
-  if (i >= 0) projects.value[i] = fresh;
-  else projects.value.push(fresh);
-  if (fresh.name === selectedName.value) activeEnv.value = fresh.activeEnv;
-}
-
-function replaceRenamedProject(oldName: string, fresh: ProjectView) {
-  const i = projects.value.findIndex((p) => p.name === oldName);
-  if (i >= 0) projects.value[i] = fresh;
-  else replaceProject(fresh);
-  projects.value.sort((a, b) => a.name.localeCompare(b.name));
-  selectedName.value = fresh.name;
-  activeEnv.value = fresh.activeEnv;
-}
-
-async function load(keepSelection = true) {
-  projects.value = await api.listProjects();
-  if (!keepSelection || !selectedName.value) selectedName.value = projects.value[0]?.name ?? null;
-}
-onMounted(() => load());
-
-// Keep the active env valid as project data is refreshed.
-watch(selected, (p) => {
-  if (p && (!activeEnv.value || !p.environments.some((e) => e.name === activeEnv.value)))
-    activeEnv.value = p.activeEnv;
+onMounted(() => {
+  projectsStore.loadProjects().catch(showError);
 });
 
-// Only auto-open/close settings when the actual project selection changes.
-watch(selectedName, () => {
-  const p = selected.value;
-  showSettings.value = p ? !p.environments.length || !p.features.length : false;
-});
-
-async function refreshSelected() {
-  if (!selectedName.value) return;
-  replaceProject(await api.getProject(selectedName.value, activeEnv.value ?? undefined));
+function showSuccess(summary: string, detail?: string) {
+  toast.add({ severity: "success", summary, detail, life: 2800 });
 }
 
-async function selectEnv(env: string) {
-  activeEnv.value = env;
-  await refreshSelected();
+function showWarn(summary: string, detail?: string) {
+  toast.add({ severity: "warn", summary, detail, life: 3200 });
 }
 
-// ── run (live SSE) ─────────────────────────────────────────────────────────
+function showError(error: unknown) {
+  toast.add({
+    severity: "error",
+    summary: "Action failed",
+    detail: error instanceof Error ? error.message : String(error),
+    life: 4200,
+  });
+}
+
+async function runAction(action: () => Promise<unknown>, success: string) {
+  try {
+    await action();
+    showSuccess(success);
+  } catch (error) {
+    showError(error);
+  }
+}
+
+function openCreateProject() {
+  projectDialogMode.value = "create";
+  editingProjectName.value = "";
+  projectDialogVisible.value = true;
+}
+
+function openRenameProject(name: string) {
+  projectDialogMode.value = "rename";
+  editingProjectName.value = name;
+  projectDialogVisible.value = true;
+}
+
+async function submitProject(name: string) {
+  try {
+    if (projectDialogMode.value === "create") {
+      await projectsStore.createProject(name);
+      showSuccess("Project created", name);
+    } else {
+      await projectsStore.renameProject(editingProjectName.value, name);
+      showSuccess("Project renamed", name);
+    }
+    projectDialogVisible.value = false;
+  } catch (error) {
+    showError(error);
+  }
+}
+
+function confirmDeleteProject(name: string) {
+  confirm.require({
+    header: "Delete project",
+    message: `Delete project "${name}" from bull-terra? Specs and recordings stay on disk.`,
+    icon: "pi pi-exclamation-triangle",
+    rejectLabel: "Cancel",
+    acceptLabel: "Delete project",
+    acceptClass: "p-button-danger",
+    accept: () => runAction(() => projectsStore.deleteProject(name), `Deleted project ${name}.`),
+  });
+}
+
 function runFeature(feature: string | undefined) {
   if (!selected.value || run.running) return;
   if (!hasEnv.value) {
-    flash("Add an environment to run against first.");
+    showWarn("Add an environment first", "Runs need a target environment.");
     showSettings.value = true;
     return;
   }
   const titles = selected.value.features
-    .filter((f) => !feature || f.feature === feature)
-    .flatMap((f) => f.tests.map((t) => t.title));
-  start(selected.value.name, feature, activeEnv.value ?? undefined, titles, refreshSelected);
+    .filter((item) => !feature || item.feature === feature)
+    .flatMap((item) => item.tests.map((test) => test.title));
+  start(selected.value.name, feature, activeEnv.value ?? undefined, titles, projectsStore.refreshSelected);
 }
 
 async function stopRun() {
@@ -90,121 +119,61 @@ async function stopRun() {
   stop();
 }
 
-// ── actions ────────────────────────────────────────────────────────────────
 async function copyGen(feature: string) {
   if (!selected.value) return;
-  const { command } = await api.genCommand(selected.value.name, feature);
   try {
-    await navigator.clipboard.writeText(command);
-    flash(`Copied: ${command}`);
-  } catch {
-    flash(command);
+    const { command } = await api.genCommand(selected.value.name, feature);
+    await copy(command);
+    showSuccess("Generation command copied", command);
+  } catch (error) {
+    showError(error);
   }
 }
 
 async function record() {
   if (!selected.value || recording.value) return;
   if (!hasEnv.value) {
-    flash("Add an environment to record against first.");
+    showWarn("Add an environment first", "Recording needs a target environment.");
     showSettings.value = true;
     return;
   }
+
   recording.value = true;
-  flash("Recording… a browser should open. Close it when done.");
+  showWarn("Recording started", "A browser should open. Close it when done.");
   try {
     await api.record(selected.value.name, { env: activeEnv.value ?? undefined });
-    await refreshSelected();
-    flash("Recording saved & registered.");
-  } catch (e) {
-    flash(`Record failed: ${(e as Error).message}`);
+    await projectsStore.refreshSelected();
+    showSuccess("Recording saved", "Base flow registered.");
+  } catch (error) {
+    showError(error);
   } finally {
     recording.value = false;
   }
 }
 
-async function createProject(name: string) {
-  try {
-    await api.addProject(name);
-    showAdd.value = false;
-    await load(false);
-    selectedName.value = name;
-    showSettings.value = true;
-  } catch (e) {
-    flash(`Could not create: ${(e as Error).message}`);
-  }
-}
-
-async function renameProject(name: string) {
-  const nextName = window.prompt("Rename project", name)?.trim();
-  if (!nextName || nextName === name) return;
-  try {
-    const fresh = await api.updateProject(name, { name: nextName });
-    replaceRenamedProject(name, fresh);
-    flash(`Renamed project to ${nextName}.`);
-  } catch (e) {
-    flash(`Could not rename: ${(e as Error).message}`);
-  }
-}
-
-async function deleteProject(name: string) {
-  if (!window.confirm(`Delete project "${name}" from bull-terra? Specs and recordings stay on disk.`))
-    return;
-  try {
-    await api.removeProject(name);
-    const wasSelected = selectedName.value === name;
-    const nextProjects = projects.value.filter((p) => p.name !== name);
-    projects.value = nextProjects;
-    if (wasSelected) {
-      selectedName.value = nextProjects[0]?.name ?? null;
-      activeEnv.value = selected.value?.activeEnv ?? null;
-    }
-    flash(`Deleted project ${name}.`);
-  } catch (e) {
-    flash(`Could not delete: ${(e as Error).message}`);
-  }
-}
-
-// ── env / feature management ─────────────────────────────────────────────────
-const guard = (fn: () => Promise<ProjectView>) =>
-  fn()
-    .then(replaceProject)
-    .catch((e) => flash((e as Error).message));
-
 const addEnv = (env: NewEnvironment) =>
-  selected.value && guard(() => api.addEnvironment(selected.value!.name, env));
+  runAction(() => projectsStore.addEnvironment(env), "Environment added.");
 const updateEnv = (env: string, next: EnvironmentInput) =>
-  selected.value && guard(() => api.updateEnvironment(selected.value!.name, env, next));
+  runAction(() => projectsStore.updateEnvironment(env, next), "Environment saved.");
 const setDefaultEnv = (env: string) =>
-  selected.value && guard(() => api.setDefaultEnvironment(selected.value!.name, env));
-const removeEnv = (env: string) => {
-  if (!selected.value || !window.confirm(`Delete environment "${env}"? Run history stays recorded.`))
-    return;
-  return guard(() => api.removeEnvironment(selected.value!.name, env));
-};
-const addFeature = (f: { name: string; sheetId?: string }) =>
-  selected.value && guard(() => api.addFeature(selected.value!.name, f));
-const updateFeature = (f: string, next: FeatureInput) =>
-  selected.value && guard(() => api.updateFeature(selected.value!.name, f, next));
-const removeFeature = (f: string) => {
-  if (!selected.value || !window.confirm(`Remove feature "${f}"? Generated specs stay on disk.`))
-    return;
-  return guard(() => api.removeFeature(selected.value!.name, f));
-};
+  runAction(() => projectsStore.setDefaultEnvironment(env), "Default environment updated.");
+const removeEnv = (env: string) =>
+  runAction(() => projectsStore.deleteEnvironment(env), "Environment deleted.");
+const addFeature = (feature: FeatureInput) =>
+  runAction(() => projectsStore.addFeature(feature), "Feature added.");
+const updateFeature = (feature: string, next: FeatureInput) =>
+  runAction(() => projectsStore.updateFeature(feature, next), "Feature saved.");
+const removeFeature = (feature: string) =>
+  runAction(() => projectsStore.deleteFeature(feature), "Feature removed.");
 
 async function showTrace(path: string) {
-  await api.showTrace(path).catch((e) => flash(`Trace: ${(e as Error).message}`));
-  flash("Opening trace in the Playwright viewer…");
+  try {
+    await api.showTrace(path);
+    showSuccess("Opening trace", "Playwright trace viewer launched.");
+  } catch (error) {
+    showError(error);
+  }
 }
-
-const gauges = computed(() => {
-  const t = selected.value?.totals ?? { tests: 0, passed: 0, failed: 0, never: 0 };
-  return [
-    { label: "test cases", val: t.tests, color: "var(--color-ink)" },
-    { label: "passing", val: t.passed, color: "var(--color-pass)" },
-    { label: "failing", val: t.failed, color: "var(--color-fail)" },
-    { label: "not run", val: t.never, color: "var(--color-ink-3)" },
-  ];
-});
 </script>
 
 <template>
@@ -212,82 +181,87 @@ const gauges = computed(() => {
     <Sidebar
       :projects="projects"
       :selected="selectedName"
-      @select="(n) => (selectedName = n)"
-      @add="showAdd = true"
-      @rename="renameProject"
-      @remove="deleteProject"
+      @select="projectsStore.selectProject"
+      @add="openCreateProject"
+      @rename="openRenameProject"
+      @remove="confirmDeleteProject"
     />
 
     <main class="flex min-w-0 flex-1 flex-col">
       <template v-if="selected">
-        <!-- project header -->
         <header class="border-b border-line px-7 py-5">
           <div class="flex flex-wrap items-end justify-between gap-4">
             <div class="flex items-end gap-4">
               <h2 class="font-display text-2xl font-extrabold text-ink">{{ selected.name }}</h2>
 
-              <!-- environment selector (run target + view) -->
-              <label v-if="hasEnv" class="flex items-center gap-2">
+              <label v-if="hasEnv" class="grid gap-1">
                 <span class="label text-ink-3">env</span>
-                <select
-                  class="rounded-sm border border-line-strong bg-card px-2 py-1 font-mono text-xs text-ink outline-none focus:border-accent"
-                  :value="activeEnv ?? ''"
-                  @change="selectEnv(($event.target as HTMLSelectElement).value)"
+                <Select
+                  :model-value="activeEnv"
+                  :options="selected.environments"
+                  option-label="name"
+                  option-value="name"
+                  class="min-w-56 font-mono text-xs"
+                  @update:model-value="projectsStore.selectEnv"
                 >
-                  <option v-for="e in selected.environments" :key="e.id" :value="e.name">
-                    {{ e.name }}{{ e.isDefault ? " ★" : "" }} — {{ e.url }}
-                  </option>
-                </select>
+                  <template #option="{ option }">
+                    <div class="grid min-w-0">
+                      <span class="font-display text-sm font-bold">{{ option.name }}</span>
+                      <span class="truncate font-mono text-[11px] text-ink-3">{{ option.url }}</span>
+                    </div>
+                  </template>
+                </Select>
               </label>
               <span v-else class="text-xs text-flaky">no environments yet</span>
             </div>
 
             <div class="flex items-center gap-2">
-              <button
-                class="rounded-sm border border-line-strong bg-card-2 px-3 py-1.5 text-xs font-medium text-ink transition hover:border-accent hover:text-accent"
-                :class="showSettings ? 'border-accent bg-accent/12 text-accent' : ''"
+              <Button
+                :label="showSettings ? 'Close manage' : 'Manage'"
+                icon="pi pi-cog"
+                size="small"
+                severity="secondary"
+                :outlined="!showSettings"
                 @click="showSettings = !showSettings"
-              >
-                ⚙ manage
-              </button>
-              <button
-                class="rounded-sm border border-line-strong bg-card px-3 py-1.5 text-xs font-medium text-ink transition hover:border-accent hover:text-accent disabled:opacity-40"
+              />
+              <Button
+                :label="recording ? 'Recording...' : 'Record base flow'"
+                :icon="recording ? 'pi pi-circle-fill' : 'pi pi-plus'"
+                size="small"
+                severity="secondary"
                 :disabled="recording"
                 @click="record"
-              >
-                {{ recording ? "● recording…" : "+ record base flow" }}
-              </button>
-              <button
-                class="rounded-sm border border-accent bg-accent/12 px-4 py-1.5 text-xs font-medium text-accent transition hover:bg-accent/20 disabled:opacity-40"
+              />
+              <Button
+                label="Run all"
+                icon="pi pi-play"
+                size="small"
                 :disabled="run.running || !selected.totals.tests"
                 @click="runFeature(undefined)"
-              >
-                ▶ run all
-              </button>
+              />
             </div>
           </div>
 
-          <!-- gauges -->
           <div class="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
             <div
-              v-for="g in gauges"
-              :key="g.label"
+              v-for="gauge in gauges"
+              :key="gauge.label"
               class="rounded-md border border-line bg-card px-4 py-3"
             >
-              <div class="tnum font-display text-3xl font-extrabold" :style="{ color: g.color }">
-                {{ g.val }}
+              <div class="tnum font-display text-3xl font-extrabold" :style="{ color: gauge.color }">
+                {{ gauge.val }}
               </div>
-              <div class="label mt-0.5 text-ink-3">{{ g.label }}</div>
+              <div class="label mt-0.5 text-ink-3">{{ gauge.label }}</div>
             </div>
           </div>
         </header>
 
-        <!-- settings: environments + features -->
         <div v-if="showSettings" class="grid gap-3 border-b border-line px-7 py-5 lg:grid-cols-2">
           <EnvManager
             :environments="selected.environments"
             :active-env="activeEnv"
-            @select="selectEnv"
+            :saving="saving"
+            @select="projectsStore.selectEnv"
             @set-default="setDefaultEnv"
             @remove="removeEnv"
             @add="addEnv"
@@ -295,19 +269,19 @@ const gauges = computed(() => {
           />
           <FeatureManager
             :features="selected.features"
+            :saving="saving"
             @add="addFeature"
             @update="updateFeature"
             @remove="removeFeature"
           />
         </div>
 
-        <!-- body: features + console -->
         <div class="flex min-h-0 flex-1">
           <div class="flex-1 space-y-3 overflow-y-auto px-7 py-6">
             <FeatureCard
-              v-for="f in selected.features"
-              :key="f.feature"
-              :feature="f"
+              v-for="feature in selected.features"
+              :key="feature.feature"
+              :feature="feature"
               :live-status="run.liveStatus"
               :running="run.running"
               :active-title="run.active"
@@ -322,65 +296,49 @@ const gauges = computed(() => {
             >
               <p class="font-display text-lg font-bold text-ink">No features yet</p>
               <p class="mx-auto mt-2 max-w-md text-sm text-ink-2">
-                Register a feature (one Google Sheet each), record a base flow, then generate
-                tests with Claude Code.
+                Register a feature, link its Google Sheet, record a base flow, then generate tests.
               </p>
-              <button
-                class="mt-4 rounded-sm border border-accent bg-accent/10 px-4 py-2 text-xs font-medium text-accent transition hover:bg-accent/20"
+              <Button
+                class="mt-4"
+                label="Open manage"
+                icon="pi pi-cog"
+                size="small"
                 @click="showSettings = true"
-              >
-                ⚙ open manage panel
-              </button>
+              />
             </div>
           </div>
 
-          <!-- live console -->
           <div class="hidden w-[420px] shrink-0 border-l border-line bg-card lg:block">
             <RunConsole :state="run" @stop="stopRun" />
           </div>
         </div>
       </template>
 
-      <!-- empty state -->
       <div v-else class="grid flex-1 place-items-center px-8 text-center">
         <div>
           <h2 class="font-display text-2xl font-extrabold text-ink">No project selected</h2>
           <p class="mx-auto mt-2 max-w-sm text-sm text-ink-2">
-            Create a project, add its environments and features, and turn your Google Sheet test
-            cases into live, regression-aware Playwright runs.
+            Create a project, add environments and features, then run Google Sheet test cases.
           </p>
-          <button
-            class="mt-5 rounded-sm border border-accent bg-accent/12 px-5 py-2.5 text-sm font-medium text-accent transition hover:bg-accent/20"
-            @click="showAdd = true"
-          >
-            + create a project
-          </button>
+          <Button
+            class="mt-5"
+            label="Create project"
+            icon="pi pi-plus"
+            size="small"
+            @click="openCreateProject"
+          />
         </div>
       </div>
     </main>
 
-    <!-- toast -->
-    <Transition name="toast">
-      <div
-        v-if="toast"
-        class="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-md border border-line-strong bg-card px-4 py-2.5 font-mono text-xs text-ink shadow-xl"
-      >
-        {{ toast }}
-      </div>
-    </Transition>
-
-    <AddProjectModal v-if="showAdd" @close="showAdd = false" @create="createProject" />
+    <ProjectDialog
+      v-model:visible="projectDialogVisible"
+      :mode="projectDialogMode"
+      :initial-name="editingProjectName"
+      :saving="saving"
+      @submit="submitProject"
+    />
+    <ConfirmDialog />
+    <Toast position="bottom-center" />
   </div>
 </template>
-
-<style scoped>
-.toast-enter-active,
-.toast-leave-active {
-  transition: all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-.toast-enter-from,
-.toast-leave-to {
-  opacity: 0;
-  transform: translate(-50%, 12px);
-}
-</style>

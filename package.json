@@ -33,7 +33,9 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "cli": "tsx src/cli/index.ts",
-    "release": "bash scripts/release.sh"
+    "release": "bash scripts/release.sh",
+    "lint": "oxlint",
+    "lint:fix": "oxlint --fix"
   },
   "keywords": [
     "playwright",
@@ -58,6 +60,7 @@
     "@playwright/test": "^1.60.0",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^25.9.2",
+    "oxlint": "^1.69.0",
     "tsup": "^8.5.1",
     "tsx": "^4.22.4",
     "typescript": "^6.0.3",

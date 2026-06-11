@@ -164,3 +164,136 @@ body {
     background-color: transparent;
   }
 }
+
+/* PrimeVue skin: keep bull-terra's instrument look while using Prime behavior. */
+.p-component {
+  font-family: var(--font-mono);
+  color: var(--color-ink);
+}
+
+.p-button {
+  min-height: 2rem;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.p-button.p-button-sm {
+  min-height: 2rem;
+  padding-block: 0.35rem;
+}
+
+.p-button.p-button-icon-only {
+  width: 2rem;
+  min-width: 2rem;
+}
+
+.p-button:not(.p-button-text) {
+  border-color: var(--color-line-strong);
+}
+
+.p-button:not(.p-button-text):not(.p-button-outlined) {
+  background: var(--color-accent);
+  color: var(--color-paper);
+}
+
+.p-button.p-button-secondary {
+  color: var(--color-ink);
+}
+
+.p-button.p-button-secondary:not(.p-button-text):not(.p-button-outlined) {
+  background: var(--color-card-2);
+  color: var(--color-ink);
+}
+
+.p-button.p-button-text,
+.p-button.p-button-outlined {
+  color: var(--color-ink-2);
+}
+
+.p-button.p-button-text:hover,
+.p-button.p-button-outlined:hover {
+  color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+}
+
+.p-button.p-button-danger,
+.p-button.p-button-danger.p-button-text {
+  color: var(--color-fail);
+}
+
+.p-dialog,
+.p-toast-message,
+.p-confirmdialog,
+.p-select-overlay {
+  border: 1px solid var(--color-line-strong);
+  border-radius: 6px;
+  background: var(--color-card);
+  color: var(--color-ink);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.22);
+}
+
+.p-dialog-header,
+.p-dialog-content,
+.p-dialog-footer {
+  background: var(--color-card);
+  color: var(--color-ink);
+}
+
+.p-dialog-title {
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.p-inputtext,
+.p-select {
+  border-color: var(--color-line-strong);
+  border-radius: 4px;
+  background: var(--color-paper);
+  color: var(--color-ink);
+  box-shadow: none;
+}
+
+.p-inputtext:enabled:focus,
+.p-select:not(.p-disabled).p-focus {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent) 45%, transparent);
+}
+
+.p-select-option {
+  color: var(--color-ink);
+}
+
+.p-select-option.p-focus {
+  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+}
+
+.p-tag {
+  max-width: 9rem;
+  border-radius: 4px;
+  background: var(--color-card-2);
+  color: var(--color-ink-2);
+  font-size: 10px;
+}
+
+.p-checkbox-box {
+  border-color: var(--color-line-strong);
+  border-radius: 3px;
+  background: var(--color-paper);
+}
+
+.p-checkbox-checked .p-checkbox-box {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+}
+
+.p-tooltip-text {
+  border: 1px solid var(--color-line-strong);
+  border-radius: 4px;
+  background: var(--color-ink);
+  color: var(--color-paper);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}

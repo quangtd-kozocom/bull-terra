@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import Button from "primevue/button";
 import type { ProjectView } from "../types";
 import { healthColor } from "../lib/status";
 import ThemeToggle from "./ThemeToggle.vue";
@@ -42,12 +43,7 @@ function health(p: ProjectView): { color: string; pct: number } {
     <!-- Projects -->
     <div class="flex items-center justify-between px-5 pb-2 pt-4">
       <span class="label text-ink-3">projects</span>
-      <button
-        class="rounded-sm border border-line px-2 py-0.5 text-xs text-ink-2 transition hover:border-accent hover:text-accent"
-        @click="emit('add')"
-      >
-        + new
-      </button>
+      <Button label="New" icon="pi pi-plus" size="small" severity="secondary" outlined @click="emit('add')" />
     </div>
 
     <nav class="flex-1 overflow-y-auto px-3 pb-4">
@@ -81,20 +77,26 @@ function health(p: ProjectView): { color: string; pct: number } {
           </span>
         </button>
         <span class="flex shrink-0 items-center gap-1 opacity-100 sm:opacity-0 sm:transition sm:group-hover:opacity-100">
-          <button
-            class="grid h-6 w-6 place-items-center rounded-sm border border-line text-[11px] text-ink-3 transition hover:border-accent hover:text-accent"
-            title="Rename project"
+          <Button
+            icon="pi pi-pencil"
+            text
+            rounded
+            size="small"
+            severity="secondary"
+            :aria-label="`Rename ${p.name}`"
+            v-tooltip.top="'Rename project'"
             @click.stop="emit('rename', p.name)"
-          >
-            ✎
-          </button>
-          <button
-            class="grid h-6 w-6 place-items-center rounded-sm border border-line text-[11px] text-ink-3 transition hover:border-fail hover:text-fail"
-            title="Delete project"
+          />
+          <Button
+            icon="pi pi-trash"
+            text
+            rounded
+            size="small"
+            severity="danger"
+            :aria-label="`Delete ${p.name}`"
+            v-tooltip.top="'Delete project'"
             @click.stop="emit('remove', p.name)"
-          >
-            ✕
-          </button>
+          />
         </span>
       </div>
     </nav>
