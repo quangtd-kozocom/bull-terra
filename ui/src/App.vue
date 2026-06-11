@@ -1,17 +1,21 @@
 <script setup lang="ts">
-import { onMounted, shallowRef } from "vue";
+import { computed, onMounted, shallowRef, watch } from "vue";
 import { storeToRefs } from "pinia";
 import { useClipboard } from "@vueuse/core";
 import Button from "primevue/button";
 import ConfirmDialog from "primevue/confirmdialog";
+import Drawer from "primevue/drawer";
 import Select from "primevue/select";
 import Toast from "primevue/toast";
 import { useConfirm } from "primevue/useconfirm";
 import { useToast } from "primevue/usetoast";
 import { api } from "./api";
 import type {
+  AuthStateView,
   EnvironmentInput,
+  EnvironmentView,
   FeatureInput,
+  FeatureView,
   NewEnvironment,
   RecordingSourceView,
   RecordingView,
@@ -20,37 +24,74 @@ import { useRun } from "./composables/useRun";
 import { useProjectsStore } from "./stores/projects";
 import Sidebar from "./components/Sidebar.vue";
 import FeatureCard from "./components/FeatureCard.vue";
+import EnvCard from "./components/EnvCard.vue";
 import RunConsole from "./components/RunConsole.vue";
-import EnvManager from "./components/EnvManager.vue";
-import FeatureManager from "./components/FeatureManager.vue";
 import ProjectDialog from "./components/ProjectDialog.vue";
+import EnvironmentDialog from "./components/EnvironmentDialog.vue";
+import FeatureDialog from "./components/FeatureDialog.vue";
 import RecordingPreviewDialog from "./components/RecordingPreviewDialog.vue";
-import RecordingsManager from "./components/RecordingsManager.vue";
+import AuthStateDialog from "./components/AuthStateDialog.vue";
 import PromoteTestDialog from "./components/PromoteTestDialog.vue";
 
 const projectsStore = useProjectsStore();
-const { projects, selectedName, activeEnv, showSettings, saving, selected, hasEnv, gauges } =
+const { projects, selectedName, activeEnv, activeTab, saving, selected, hasEnv, gauges } =
   storeToRefs(projectsStore);
 const { state: run, start, stop } = useRun();
 const { copy } = useClipboard();
 const confirm = useConfirm();
 const toast = useToast();
 
+const consoleOpen = shallowRef(false);
 const recording = shallowRef(false);
 const recordingPreviewVisible = shallowRef(false);
 const recordingPreviewLoading = shallowRef(false);
 const recordingPreview = shallowRef<RecordingSourceView | null>(null);
+const recordingSaving = shallowRef(false);
+const authStateVisible = shallowRef(false);
+const authStateLoading = shallowRef(false);
+const authState = shallowRef<AuthStateView | null>(null);
 const projectDialogVisible = shallowRef(false);
 const projectDialogMode = shallowRef<"create" | "rename">("create");
 const editingProjectName = shallowRef("");
+const envDialogVisible = shallowRef(false);
+const envDialogMode = shallowRef<"create" | "edit">("create");
+const editingEnv = shallowRef<EnvironmentView | null>(null);
+const featureDialogVisible = shallowRef(false);
+const featureDialogMode = shallowRef<"create" | "edit">("create");
+const editingFeature = shallowRef<FeatureView | null>(null);
 const capturingAuth = shallowRef<string | null>(null);
 const promoteVisible = shallowRef(false);
 const promoting = shallowRef(false);
 const promoteTarget = shallowRef<RecordingView | null>(null);
 
+/** The active run-target env — anchor the Environments tab compares against. */
+const currentEnv = computed(
+  () => selected.value?.environments.find((env) => env.name === activeEnv.value) ?? null,
+);
+/** Current env first, so it reads as the baseline at the top of the list. */
+const orderedEnvs = computed(() =>
+  [...(selected.value?.environments ?? [])].sort((a, b) =>
+    a.name === activeEnv.value ? -1 : b.name === activeEnv.value ? 1 : 0,
+  ),
+);
+const consoleDot = computed(() => {
+  if (run.running) return "var(--color-accent)";
+  if (run.finishedStatus === "passed") return "var(--color-pass)";
+  if (run.finishedStatus) return "var(--color-fail)";
+  return "var(--color-ink-3)";
+});
+
 onMounted(() => {
   projectsStore.loadProjects().catch(showError);
 });
+
+// The console slides in the moment a run starts, and stays until dismissed.
+watch(
+  () => run.running,
+  (running) => {
+    if (running) consoleOpen.value = true;
+  },
+);
 
 function showSuccess(summary: string, detail?: string) {
   toast.add({ severity: "success", summary, detail, life: 2800 });
@@ -117,6 +158,86 @@ function confirmDeleteProject(name: string) {
   });
 }
 
+// ---- environments --------------------------------------------------------
+
+function openCreateEnv() {
+  envDialogMode.value = "create";
+  editingEnv.value = null;
+  envDialogVisible.value = true;
+}
+
+function openEditEnv(env: EnvironmentView) {
+  envDialogMode.value = "edit";
+  editingEnv.value = env;
+  envDialogVisible.value = true;
+}
+
+function submitEnv(value: NewEnvironment | EnvironmentInput) {
+  if (envDialogMode.value === "create") {
+    runAction(() => projectsStore.addEnvironment(value as NewEnvironment), "Environment added.");
+  } else if (editingEnv.value) {
+    const name = editingEnv.value.name;
+    runAction(() => projectsStore.updateEnvironment(name, value as EnvironmentInput), "Environment saved.");
+  }
+  envDialogVisible.value = false;
+}
+
+const setDefaultEnv = (env: string) =>
+  runAction(() => projectsStore.setDefaultEnvironment(env), "Default environment updated.");
+const removeEnv = (env: EnvironmentView) =>
+  runAction(() => projectsStore.deleteEnvironment(env.name), "Environment deleted.");
+
+async function captureAuth(env: string) {
+  if (!selected.value || capturingAuth.value) return;
+  capturingAuth.value = env;
+  showWarn("Login browser opened", `Log in for ${env}, then close the browser to save the session.`);
+  try {
+    await api.captureAuth(selected.value.name, env);
+    await projectsStore.refreshSelected();
+    showSuccess("Auth session saved", `${env} can now record and run auth-required features.`);
+  } catch (error) {
+    showError(error);
+  } finally {
+    capturingAuth.value = null;
+  }
+}
+
+// ---- features ------------------------------------------------------------
+
+function openCreateFeature() {
+  featureDialogMode.value = "create";
+  editingFeature.value = null;
+  featureDialogVisible.value = true;
+}
+
+function openEditFeature(feature: FeatureView) {
+  featureDialogMode.value = "edit";
+  editingFeature.value = feature;
+  featureDialogVisible.value = true;
+}
+
+function submitFeature(value: FeatureInput) {
+  if (featureDialogMode.value === "create") {
+    runAction(() => projectsStore.addFeature(value), "Feature added.");
+  } else if (editingFeature.value) {
+    const name = editingFeature.value.feature;
+    runAction(() => projectsStore.updateFeature(name, value), "Feature saved.");
+  }
+  featureDialogVisible.value = false;
+}
+
+function confirmDeleteFeature(feature: string) {
+  confirm.require({
+    header: "Remove feature",
+    message: `Remove feature "${feature}" and its Google Sheet link? Generated specs stay on disk.`,
+    icon: "pi pi-exclamation-triangle",
+    rejectLabel: "Cancel",
+    acceptLabel: "Remove feature",
+    acceptClass: "p-button-danger",
+    accept: () => runAction(() => projectsStore.deleteFeature(feature), `Removed ${feature}.`),
+  });
+}
+
 function confirmDeleteTest(feature: string, title: string) {
   confirm.require({
     header: "Delete test case",
@@ -130,11 +251,28 @@ function confirmDeleteTest(feature: string, title: string) {
   });
 }
 
+function confirmDeleteTests(feature: string, titles: string[]) {
+  if (!titles.length) return;
+  confirm.require({
+    header: "Delete test cases",
+    message: `Delete ${titles.length} test case${titles.length > 1 ? "s" : ""} from ${feature}.spec.ts? This rewrites the spec file.`,
+    icon: "pi pi-exclamation-triangle",
+    rejectLabel: "Cancel",
+    acceptLabel: "Delete tests",
+    acceptClass: "p-button-danger",
+    accept: () =>
+      runAction(
+        () => projectsStore.deleteTests(feature, titles),
+        `Deleted ${titles.length} test case${titles.length > 1 ? "s" : ""}.`,
+      ),
+  });
+}
+
 function confirmDeleteRecording(recording: RecordingView) {
   const scope = recording.feature ? `${recording.feature}/${recording.name}` : recording.name;
   confirm.require({
     header: "Delete recording",
-    message: `Delete recording "${scope}"? This permanently deletes the file.`,
+    message: `Delete recording "${scope}"? The file moves to .history.`,
     icon: "pi pi-exclamation-triangle",
     rejectLabel: "Cancel",
     acceptLabel: "Delete recording",
@@ -144,11 +282,30 @@ function confirmDeleteRecording(recording: RecordingView) {
   });
 }
 
+function confirmDeleteRecordings(recordings: RecordingView[]) {
+  if (!recordings.length) return;
+  confirm.require({
+    header: "Delete recordings",
+    message: `Delete ${recordings.length} recording${recordings.length > 1 ? "s" : ""}? The files move to .history.`,
+    icon: "pi pi-exclamation-triangle",
+    rejectLabel: "Cancel",
+    acceptLabel: "Delete recordings",
+    acceptClass: "p-button-danger",
+    accept: () =>
+      runAction(
+        () => projectsStore.deleteRecordings(recordings.map((r) => r.id)),
+        `Deleted ${recordings.length} recording${recordings.length > 1 ? "s" : ""}.`,
+      ),
+  });
+}
+
+// ---- runs / recordings ---------------------------------------------------
+
 function runFeature(feature: string | undefined) {
   if (!selected.value || run.running) return;
   if (!hasEnv.value) {
     showWarn("Add an environment first", "Runs need a target environment.");
-    showSettings.value = true;
+    activeTab.value = "environments";
     return;
   }
   const titles = selected.value.features
@@ -182,7 +339,7 @@ async function recordFeature(feature: string, name = "base") {
   if (!selected.value || recording.value) return;
   if (!hasEnv.value) {
     showWarn("Add an environment first", "Recording needs a target environment.");
-    showSettings.value = true;
+    activeTab.value = "environments";
     return;
   }
 
@@ -214,18 +371,41 @@ async function viewRecording(recordingId: number) {
   }
 }
 
-async function captureAuth(env: string) {
-  if (!selected.value || capturingAuth.value) return;
-  capturingAuth.value = env;
-  showWarn("Login browser opened", `Log in for ${env}, then close the browser to save the session.`);
+async function saveRecording(recordingId: number, source: string) {
+  if (!selected.value || recordingSaving.value) return;
+  recordingSaving.value = true;
   try {
-    await api.captureAuth(selected.value.name, env);
+    recordingPreview.value = await api.saveRecording(selected.value.name, recordingId, source);
     await projectsStore.refreshSelected();
-    showSuccess("Auth session saved", `${env} can now record and run auth-required features.`);
+    showSuccess("Recording saved", "Edits written to disk.");
   } catch (error) {
     showError(error);
   } finally {
-    capturingAuth.value = null;
+    recordingSaving.value = false;
+  }
+}
+
+async function viewAuthState(env: string) {
+  if (!selected.value) return;
+  authStateVisible.value = true;
+  authStateLoading.value = true;
+  authState.value = null;
+  try {
+    authState.value = await api.getAuthState(selected.value.name, env);
+  } catch (error) {
+    authStateVisible.value = false;
+    showError(error);
+  } finally {
+    authStateLoading.value = false;
+  }
+}
+
+async function openSpec(specRelPath: string) {
+  // specRelPath is "<project>/<feature>.spec.ts", rooted under tests/gen.
+  try {
+    await api.openFile(`tests/gen/${specRelPath}`);
+  } catch (error) {
+    showError(error);
   }
 }
 
@@ -252,21 +432,6 @@ async function submitPromote(value: { tcId: string; title: string }) {
   }
 }
 
-const addEnv = (env: NewEnvironment) =>
-  runAction(() => projectsStore.addEnvironment(env), "Environment added.");
-const updateEnv = (env: string, next: EnvironmentInput) =>
-  runAction(() => projectsStore.updateEnvironment(env, next), "Environment saved.");
-const setDefaultEnv = (env: string) =>
-  runAction(() => projectsStore.setDefaultEnvironment(env), "Default environment updated.");
-const removeEnv = (env: string) =>
-  runAction(() => projectsStore.deleteEnvironment(env), "Environment deleted.");
-const addFeature = (feature: FeatureInput) =>
-  runAction(() => projectsStore.addFeature(feature), "Feature added.");
-const updateFeature = (feature: string, next: FeatureInput) =>
-  runAction(() => projectsStore.updateFeature(feature, next), "Feature saved.");
-const removeFeature = (feature: string) =>
-  runAction(() => projectsStore.deleteFeature(feature), "Feature removed.");
-
 async function showTrace(path: string) {
   try {
     await api.showTrace(path);
@@ -290,13 +455,13 @@ async function showTrace(path: string) {
 
     <main class="flex min-w-0 flex-1 flex-col">
       <template v-if="selected">
-        <header class="border-b border-line px-7 py-5">
-          <div class="flex flex-wrap items-end justify-between gap-4">
-            <div class="flex items-end gap-4">
+        <header class="border-b border-line px-7 pt-5">
+          <div class="flex flex-wrap items-center justify-between gap-4">
+            <div class="flex min-w-0 items-center gap-4">
               <h2 class="font-display text-2xl font-extrabold text-ink">{{ selected.name }}</h2>
 
-              <label v-if="hasEnv" class="grid gap-1">
-                <span class="label text-ink-3">env</span>
+              <label v-if="hasEnv" class="flex items-center gap-2">
+                <span class="label text-ink-3">current env</span>
                 <Select
                   :model-value="activeEnv"
                   :options="selected.environments"
@@ -316,26 +481,40 @@ async function showTrace(path: string) {
               <span v-else class="text-xs text-flaky">no environments yet</span>
             </div>
 
-            <div class="flex items-center gap-2">
-              <Button
-                :label="showSettings ? 'Close manage' : 'Manage'"
-                icon="pi pi-cog"
-                size="small"
-                severity="secondary"
-                :outlined="!showSettings"
-                @click="showSettings = !showSettings"
+            <button
+              class="flex items-center gap-2 rounded-sm border border-line-strong bg-card px-3 py-1.5 font-mono text-[11px] text-ink-2 shadow-sm transition hover:border-accent hover:text-accent"
+              @click="consoleOpen = !consoleOpen"
+            >
+              <span
+                class="h-2 w-2 rounded-full"
+                :class="run.running ? 'pulse' : ''"
+                :style="{ backgroundColor: consoleDot }"
               />
-              <Button
-                label="Run all"
-                icon="pi pi-play"
-                size="small"
-                :disabled="run.running || !selected.totals.tests"
-                @click="runFeature(undefined)"
-              />
-            </div>
+              console
+            </button>
           </div>
 
-          <div class="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <!-- tabs -->
+          <nav class="-mb-px mt-5 flex gap-6">
+            <button
+              v-for="tab in (['run', 'environments'] as const)"
+              :key="tab"
+              class="label border-b-2 pb-3 transition"
+              :class="
+                activeTab === tab
+                  ? 'border-accent text-ink'
+                  : 'border-transparent text-ink-2 hover:text-ink'
+              "
+              @click="activeTab = tab"
+            >
+              {{ tab }}
+            </button>
+          </nav>
+        </header>
+
+        <!-- RUN TAB -->
+        <div v-if="activeTab === 'run'" class="min-h-0 flex-1 overflow-y-auto px-7 py-6">
+          <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <div
               v-for="gauge in gauges"
               :key="gauge.label"
@@ -347,41 +526,29 @@ async function showTrace(path: string) {
               <div class="label mt-0.5 text-ink-3">{{ gauge.label }}</div>
             </div>
           </div>
-        </header>
 
-        <div v-if="showSettings" class="grid gap-3 border-b border-line px-7 py-5 xl:grid-cols-3">
-          <EnvManager
-            :environments="selected.environments"
-            :active-env="activeEnv"
-            :saving="saving"
-            :capturing-auth="capturingAuth"
-            @select="projectsStore.selectEnv"
-            @set-default="setDefaultEnv"
-            @remove="removeEnv"
-            @add="addEnv"
-            @update="updateEnv"
-            @capture-auth="captureAuth"
-          />
-          <FeatureManager
-            :features="selected.features"
-            :saving="saving"
-            @add="addFeature"
-            @update="updateFeature"
-            @remove="removeFeature"
-          />
-          <RecordingsManager
-            :features="selected.features"
-            :recordings="selected.recordings"
-            :saving="saving || recording"
-            @record="recordFeature"
-            @view="viewRecording"
-            @promote="openPromote"
-            @remove="confirmDeleteRecording"
-          />
-        </div>
+          <div class="mb-3 mt-6 flex items-center justify-between">
+            <span class="label text-ink-3">features</span>
+            <div class="flex items-center gap-2">
+              <Button
+                label="Add feature"
+                icon="pi pi-plus"
+                size="small"
+                severity="secondary"
+                outlined
+                @click="openCreateFeature"
+              />
+              <Button
+                label="Run all"
+                icon="pi pi-play"
+                size="small"
+                :disabled="run.running || !selected.totals.tests"
+                @click="runFeature(undefined)"
+              />
+            </div>
+          </div>
 
-        <div class="flex min-h-0 flex-1">
-          <div class="flex-1 space-y-3 overflow-y-auto px-7 py-6">
+          <div class="space-y-3">
             <FeatureCard
               v-for="feature in selected.features"
               :key="feature.feature"
@@ -391,10 +558,17 @@ async function showTrace(path: string) {
               :active-title="run.active"
               @run="(name) => runFeature(name)"
               @gen="copyGen"
-              @record="(name) => recordFeature(name)"
+              @record="(name, recName) => recordFeature(name, recName)"
               @view-recording="viewRecording"
+              @promote="openPromote"
+              @remove-recording="confirmDeleteRecording"
+              @remove-recordings="confirmDeleteRecordings"
+              @edit="openEditFeature"
+              @remove-feature="confirmDeleteFeature"
               @trace="showTrace"
               @delete-test="confirmDeleteTest"
+              @delete-tests="confirmDeleteTests"
+              @open-spec="openSpec"
             />
 
             <div
@@ -407,16 +581,63 @@ async function showTrace(path: string) {
               </p>
               <Button
                 class="mt-4"
-                label="Open manage"
-                icon="pi pi-cog"
+                label="Add feature"
+                icon="pi pi-plus"
                 size="small"
-                @click="showSettings = true"
+                @click="openCreateFeature"
               />
             </div>
           </div>
+        </div>
 
-          <div class="hidden w-[420px] shrink-0 border-l border-line bg-card lg:block">
-            <RunConsole :state="run" @stop="stopRun" />
+        <!-- ENVIRONMENTS TAB -->
+        <div v-else class="min-h-0 flex-1 overflow-y-auto px-7 py-6">
+          <div class="mb-3 flex items-center justify-between">
+            <span class="label text-ink-3">environments · compared to current</span>
+            <Button
+              label="Add environment"
+              icon="pi pi-plus"
+              size="small"
+              severity="secondary"
+              outlined
+              @click="openCreateEnv"
+            />
+          </div>
+
+          <div class="grid gap-3 xl:grid-cols-2">
+            <EnvCard
+              v-for="env in orderedEnvs"
+              :key="env.id"
+              :env="env"
+              :current="currentEnv"
+              :is-active="env.name === activeEnv"
+              :saving="saving"
+              :capturing="capturingAuth === env.name"
+              @select="projectsStore.selectEnv"
+              @set-default="setDefaultEnv"
+              @edit="openEditEnv"
+              @remove="removeEnv"
+              @capture-auth="captureAuth"
+              @view-auth="viewAuthState"
+            />
+
+            <div
+              v-if="!selected.environments.length"
+              class="rounded-md border border-dashed border-line-strong px-6 py-12 text-center xl:col-span-2"
+            >
+              <p class="font-display text-lg font-bold text-ink">No environments yet</p>
+              <p class="mx-auto mt-2 max-w-md text-sm text-ink-2">
+                Add your local / dev / stg targets. The active one is the run target and the
+                baseline every other env is compared against.
+              </p>
+              <Button
+                class="mt-4"
+                label="Add environment"
+                icon="pi pi-plus"
+                size="small"
+                @click="openCreateEnv"
+              />
+            </div>
           </div>
         </div>
       </template>
@@ -438,6 +659,17 @@ async function showTrace(path: string) {
       </div>
     </main>
 
+    <Drawer
+      v-model:visible="consoleOpen"
+      position="right"
+      header="run console"
+      :modal="false"
+      :style="{ width: '460px', maxWidth: '92vw' }"
+      :pt="{ content: { class: '!p-0 flex min-h-0 flex-1 flex-col' } }"
+    >
+      <RunConsole :state="run" @stop="stopRun" />
+    </Drawer>
+
     <ProjectDialog
       v-model:visible="projectDialogVisible"
       :mode="projectDialogMode"
@@ -445,10 +677,31 @@ async function showTrace(path: string) {
       :saving="saving"
       @submit="submitProject"
     />
+    <EnvironmentDialog
+      v-model:visible="envDialogVisible"
+      :mode="envDialogMode"
+      :environment="editingEnv"
+      :saving="saving"
+      @submit="submitEnv"
+    />
+    <FeatureDialog
+      v-model:visible="featureDialogVisible"
+      :mode="featureDialogMode"
+      :feature="editingFeature"
+      :saving="saving"
+      @submit="submitFeature"
+    />
     <RecordingPreviewDialog
       v-model:visible="recordingPreviewVisible"
       :recording="recordingPreview"
       :loading="recordingPreviewLoading"
+      :saving="recordingSaving"
+      @save="saveRecording"
+    />
+    <AuthStateDialog
+      v-model:visible="authStateVisible"
+      :state="authState"
+      :loading="authStateLoading"
     />
     <PromoteTestDialog
       v-model:visible="promoteVisible"

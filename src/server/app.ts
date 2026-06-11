@@ -1,6 +1,6 @@
 import { serve } from "@hono/node-server";
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, unlinkSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { basename, dirname, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -246,6 +246,27 @@ export function createApp(opts: ServerOptions): Hono {
     }
   });
 
+  // Read the stored Playwright storageState (cookies / localStorage) for an env.
+  app.get("/api/projects/:name/environments/:env/auth/state", (c) => {
+    const p = getProjectOr404(c.req.param("name"));
+    if (!p) return c.json({ error: "not found" }, 404);
+    const env = db.getEnvironment(p.id, c.req.param("env"));
+    if (!env) return c.json({ error: "no such environment" }, 404);
+    const auth = authStateInfo(paths, p, env);
+    if (!auth.exists)
+      return c.json({ error: "No auth state captured yet — use “Login once” first." }, 404);
+    try {
+      return c.json({
+        env: env.name,
+        path: auth.relPath,
+        updatedAt: auth.updatedAt,
+        source: readFileSync(auth.path, "utf8"),
+      });
+    } catch (e) {
+      return c.json({ error: (e as Error).message }, 400);
+    }
+  });
+
   // ---- features ----------------------------------------------------------
   app.post("/api/projects/:name/features", async (c) => {
     const p = getProjectOr404(c.req.param("name"));
@@ -340,6 +361,32 @@ export function createApp(opts: ServerOptions): Hono {
         isPrimary: recording.name === "base",
         created_at: recording.created_at,
         source: readFileSync(recording.path, "utf8"),
+      });
+    } catch (e) {
+      return c.json({ error: (e as Error).message }, 400);
+    }
+  });
+
+  // Save edited recording source back to disk (feeds /gen-tests + promote).
+  app.put("/api/projects/:name/recordings/:recordingId", async (c) => {
+    const p = getProjectOr404(c.req.param("name"));
+    if (!p) return c.json({ error: "not found" }, 404);
+    const recording = db.getRecordingById(Number(c.req.param("recordingId")));
+    if (!recording || recording.project_id !== p.id) return c.json({ error: "recording not found" }, 404);
+    const body = await c.req.json<{ source?: string }>().catch(() => null);
+    if (typeof body?.source !== "string") return c.json({ error: "source is required" }, 400);
+    if (!existsSync(recording.path)) return c.json({ error: "recording file no longer exists" }, 404);
+    try {
+      writeFileSync(recording.path, body.source, "utf8");
+      const feature = recording.feature_id == null ? null : db.getFeatureById(recording.feature_id)?.name ?? null;
+      return c.json({
+        id: recording.id,
+        name: recording.name,
+        path: recording.path,
+        feature,
+        isPrimary: recording.name === "base",
+        created_at: recording.created_at,
+        source: body.source,
       });
     } catch (e) {
       return c.json({ error: (e as Error).message }, 400);
@@ -540,6 +587,24 @@ export function createApp(opts: ServerOptions): Hono {
       );
     const rec = db.addFeatureRecording(p.id, feature.id, recName, outPath);
     return c.json(rec);
+  });
+
+  // Open a project file (e.g. a generated spec) in the OS default editor.
+  app.post("/api/open", async (c) => {
+    const body = await c.req.json<{ path: string }>().catch(() => null);
+    if (!body?.path) return c.json({ error: "path is required" }, 400);
+    const abs = join(paths.root, body.path);
+    if (!abs.startsWith(paths.root)) return c.json({ error: "path escapes project root" }, 400);
+    if (!existsSync(abs)) return c.json({ error: "file not found" }, 404);
+    const opener =
+      process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
+    spawn(opener, [abs], {
+      cwd: paths.root,
+      stdio: "ignore",
+      detached: true,
+      shell: process.platform === "win32",
+    }).unref();
+    return c.json({ ok: true });
   });
 
   // Open a Playwright trace in the trace viewer (local machine).

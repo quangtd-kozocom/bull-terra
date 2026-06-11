@@ -37,6 +37,22 @@ export interface RecordingSourceView extends RecordingView {
   source: string;
 }
 
+export interface AuthStateView {
+  env: string;
+  path: string;
+  updatedAt: string | null;
+  source: string;
+}
+
+export interface EnvHealth {
+  passed: number;
+  failed: number;
+  never: number;
+  total: number;
+  regressions: number;
+  lastRunAt: string | null;
+}
+
 export interface EnvironmentView {
   id: number;
   name: string;
@@ -47,6 +63,8 @@ export interface EnvironmentView {
   authStatePath: string;
   authStateExists: boolean;
   authStateUpdatedAt: string | null;
+  /** This env's own test outcomes — for comparing any env to the active one. */
+  health: EnvHealth;
 }
 
 export interface ProjectView {

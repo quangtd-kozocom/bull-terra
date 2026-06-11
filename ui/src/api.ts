@@ -1,4 +1,5 @@
 import type {
+  AuthStateView,
   EnvironmentInput,
   FeatureInput,
   NewEnvironment,
@@ -67,6 +68,11 @@ export const api = {
       json<{ ok: true; path: string }>(r),
     ),
 
+  getAuthState: (name: string, env: string) =>
+    fetch(`/api/projects/${enc(name)}/environments/${enc(env)}/auth/state`).then((r) =>
+      json<AuthStateView>(r),
+    ),
+
   // features
   addFeature: (name: string, feature: FeatureInput) =>
     post(`/api/projects/${enc(name)}/features`, feature).then((r) => json<ProjectView>(r)),
@@ -117,12 +123,21 @@ export const api = {
       json<RecordingSourceView>(r),
     ),
 
+  saveRecording: (name: string, recordingId: number, source: string) =>
+    fetch(`/api/projects/${enc(name)}/recordings/${recordingId}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ source }),
+    }).then((r) => json<RecordingSourceView>(r)),
+
   promoteRecording: (name: string, recordingId: number, body: { tcId: string; title: string }) =>
     post(`/api/projects/${enc(name)}/recordings/${recordingId}/promote`, body).then((r) =>
       json<{ ok: true; feature: string; specPath: string; tcId: string; title: string }>(r),
     ),
 
   showTrace: (path: string) => post("/api/trace", { path }).then((r) => json(r)),
+
+  openFile: (path: string) => post("/api/open", { path }).then((r) => json(r)),
 
   stopRun: () => fetch("/api/run/stop", { method: "POST" }).then((r) => json(r)),
 };

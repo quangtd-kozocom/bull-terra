@@ -41,6 +41,16 @@ export interface RecordingView {
   created_at: string;
 }
 
+/** Latest-result tally for one env, computed on the same basis as project totals. */
+export interface EnvHealth {
+  passed: number;
+  failed: number;
+  never: number;
+  total: number;
+  regressions: number;
+  lastRunAt: string | null;
+}
+
 export interface EnvironmentView {
   id: number;
   name: string;
@@ -51,6 +61,8 @@ export interface EnvironmentView {
   authStatePath: string;
   authStateExists: boolean;
   authStateUpdatedAt: string | null;
+  /** This env's own test outcomes — lets the UI compare any env to the active one. */
+  health: EnvHealth;
 }
 
 export interface ProjectView {
@@ -66,7 +78,12 @@ export interface ProjectView {
   totals: { tests: number; passed: number; failed: number; never: number };
 }
 
-function envView(paths: ProjectPaths, project: Project, e: Environment): EnvironmentView {
+function envView(
+  paths: ProjectPaths,
+  project: Project,
+  e: Environment,
+  health: EnvHealth,
+): EnvironmentView {
   const authPath = envAuthStatePath(paths, project.name, e.name);
   const authStateExists = existsSync(authPath);
   return {
@@ -78,6 +95,48 @@ function envView(paths: ProjectPaths, project: Project, e: Environment): Environ
     authStatePath: relative(paths.root, authPath).split("\\").join("/"),
     authStateExists,
     authStateUpdatedAt: authStateExists ? statSync(authPath).mtime.toISOString() : null,
+    health,
+  };
+}
+
+/**
+ * Tally one env's latest-per-test outcomes against the project's discovered
+ * tests — the same basis as the active-env gauges, so an env's numbers mean the
+ * same thing wherever they appear. A regression is a test green in the baseline
+ * but now failing on this env.
+ */
+function envHealth(
+  db: Db,
+  projectId: number,
+  envId: number,
+  discovered: { testId: string }[],
+): EnvHealth {
+  const latest = db.latestResultsByTest(projectId, envId);
+  const baselines = new Map(
+    db.listBaselines(projectId, envId).map((b) => [b.test_id, b.last_known_status]),
+  );
+  let passed = 0;
+  let failed = 0;
+  let never = 0;
+  let regressions = 0;
+  for (const t of discovered) {
+    const status = latest.get(t.testId)?.status ?? "never-run";
+    if (status === "passed") passed++;
+    else if (status === "never-run") never++;
+    else {
+      failed++;
+      if (baselines.get(t.testId) === "passed" && (status === "failed" || status === "timedOut")) {
+        regressions++;
+      }
+    }
+  }
+  return {
+    passed,
+    failed,
+    never,
+    total: discovered.length,
+    regressions,
+    lastRunAt: db.listRuns(projectId, envId, 1)[0]?.started_at ?? null,
   };
 }
 
@@ -189,7 +248,9 @@ export function buildProjectView(
     id: project.id,
     name: project.name,
     created_at: project.created_at,
-    environments: environments.map((env) => envView(paths, project, env)),
+    environments: environments.map((env) =>
+      envView(paths, project, env, envHealth(db, project.id, env.id, discovered)),
+    ),
     activeEnv: activeEnv?.name ?? null,
     features: [...byFeature.values()].sort((a, b) => a.feature.localeCompare(b.feature)),
     recordings: allRecordings,

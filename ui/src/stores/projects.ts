@@ -8,7 +8,7 @@ export const useProjectsStore = defineStore("projects", () => {
   const projects = shallowRef<ProjectView[]>([]);
   const selectedName = useLocalStorage<string | null>("bull-terra:selected-project", null);
   const activeEnv = useLocalStorage<string | null>("bull-terra:active-env", null);
-  const showSettings = useLocalStorage("bull-terra:show-settings", false);
+  const activeTab = useLocalStorage<"run" | "environments">("bull-terra:active-tab", "run");
   const loading = shallowRef(false);
   const saving = shallowRef(false);
 
@@ -30,13 +30,17 @@ export const useProjectsStore = defineStore("projects", () => {
   function syncActiveEnv(project = selected.value) {
     if (!project) {
       activeEnv.value = null;
-      showSettings.value = false;
       return;
     }
 
     if (!activeEnv.value || !project.environments.some((env) => env.name === activeEnv.value)) {
       activeEnv.value = project.activeEnv;
     }
+  }
+
+  /** Land on the tab that has actionable setup: no envs → Environments, else Run. */
+  function routeTab(project = selected.value) {
+    activeTab.value = project && !project.environments.length ? "environments" : "run";
   }
 
   function replaceProject(fresh: ProjectView) {
@@ -69,9 +73,7 @@ export const useProjectsStore = defineStore("projects", () => {
         selectedName.value = projects.value[0]?.name ?? null;
       }
       syncActiveEnv();
-      if (selected.value && (!selected.value.environments.length || !selected.value.features.length)) {
-        showSettings.value = true;
-      }
+      routeTab();
     } finally {
       loading.value = false;
     }
@@ -85,9 +87,7 @@ export const useProjectsStore = defineStore("projects", () => {
   async function selectProject(name: string) {
     selectedName.value = name;
     syncActiveEnv();
-    showSettings.value = selected.value
-      ? !selected.value.environments.length || !selected.value.features.length
-      : false;
+    routeTab();
   }
 
   async function selectEnv(env: string) {
@@ -101,7 +101,7 @@ export const useProjectsStore = defineStore("projects", () => {
       const fresh = await api.addProject(name);
       replaceProject(fresh);
       selectedName.value = fresh.name;
-      showSettings.value = true;
+      activeTab.value = "environments";
       return fresh;
     } finally {
       saving.value = false;
@@ -235,6 +235,26 @@ export const useProjectsStore = defineStore("projects", () => {
     }
   }
 
+  async function deleteTests(feature: string, titles: string[]) {
+    if (!selected.value || !titles.length) return null;
+    saving.value = true;
+    try {
+      let fresh = null;
+      for (const title of titles) {
+        fresh = await api.removeTest(
+          selected.value.name,
+          feature,
+          title,
+          activeEnv.value ?? undefined,
+        );
+      }
+      if (fresh) replaceProject(fresh);
+      return fresh;
+    } finally {
+      saving.value = false;
+    }
+  }
+
   async function deleteRecording(recordingId: number) {
     if (!selected.value) return null;
     saving.value = true;
@@ -251,11 +271,26 @@ export const useProjectsStore = defineStore("projects", () => {
     }
   }
 
+  async function deleteRecordings(ids: number[]) {
+    if (!selected.value || !ids.length) return null;
+    saving.value = true;
+    try {
+      let fresh = null;
+      for (const id of ids) {
+        fresh = await api.removeRecording(selected.value.name, id, activeEnv.value ?? undefined);
+      }
+      if (fresh) replaceProject(fresh);
+      return fresh;
+    } finally {
+      saving.value = false;
+    }
+  }
+
   return {
     projects,
     selectedName,
     activeEnv,
-    showSettings,
+    activeTab,
     loading,
     saving,
     selected,
@@ -276,6 +311,8 @@ export const useProjectsStore = defineStore("projects", () => {
     updateFeature,
     deleteFeature,
     deleteTest,
+    deleteTests,
     deleteRecording,
+    deleteRecordings,
   };
 });

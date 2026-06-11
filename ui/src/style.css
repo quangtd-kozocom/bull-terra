@@ -12,6 +12,7 @@
   --color-paper: #f4f3ef;
   --color-card: #ffffff;
   --color-card-2: #ecebe5;
+  --color-sunken: #e4e1d6;
   --color-line: #e2dfd7;
   --color-line-strong: #cbc7bd;
   --color-ink: #18171c;
@@ -30,6 +31,7 @@
   --color-paper: #f4f3ef;
   --color-card: #ffffff;
   --color-card-2: #ecebe5;
+  --color-sunken: #e4e1d6;
   --color-line: #e2dfd7;
   --color-line-strong: #cbc7bd;
   --color-ink: #18171c;
@@ -41,12 +43,27 @@
   --color-flaky: #b5811a;
   --grid-line: rgba(24, 23, 28, 0.045);
   color-scheme: light;
+
+  /* CodeMirror token palette — ink-on-paper. */
+  --cm-ink: #2b2a30;
+  --cm-keyword: #9326c9;
+  --cm-string: #1f7a45;
+  --cm-number: #9a6a12;
+  --cm-comment: #9a958a;
+  --cm-function: #2342d6;
+  --cm-property: #b1521b;
+  --cm-type: #1f6fa8;
+  --cm-punct: #6b675e;
+  --cm-gutter: #b3aea2;
+  --cm-active-line: color-mix(in srgb, var(--color-accent) 5%, transparent);
+  --cm-selection: color-mix(in srgb, var(--color-accent) 20%, transparent);
 }
 
 :root[data-theme="dark"] {
   --color-paper: #111216;
   --color-card: #16181d;
   --color-card-2: #1c1f25;
+  --color-sunken: #0d0e12;
   --color-line: #292c33;
   --color-line-strong: #3b3f48;
   --color-ink: #eceae3;
@@ -58,6 +75,20 @@
   --color-flaky: #e0b341;
   --grid-line: rgba(255, 255, 255, 0.04);
   color-scheme: dark;
+
+  /* CodeMirror token palette — brighter for the dark surface. */
+  --cm-ink: #d7d4cb;
+  --cm-keyword: #c792ea;
+  --cm-string: #8ddf9f;
+  --cm-number: #e0b341;
+  --cm-comment: #6a6760;
+  --cm-function: #82a0ff;
+  --cm-property: #ffb27a;
+  --cm-type: #6fd2e0;
+  --cm-punct: #9c988e;
+  --cm-gutter: #4a4842;
+  --cm-active-line: color-mix(in srgb, var(--color-accent) 9%, transparent);
+  --cm-selection: color-mix(in srgb, var(--color-accent) 26%, transparent);
 }
 
 html,
@@ -207,9 +238,16 @@ body {
   color: var(--color-ink);
 }
 
-.p-button.p-button-text,
+.p-button.p-button-text {
+  color: var(--color-ink-2);
+}
+
+/* Outlined buttons sit directly on the paper grid; a card fill + strong border
+   keeps them legible instead of blending into the background. */
 .p-button.p-button-outlined {
   color: var(--color-ink-2);
+  background: var(--color-card);
+  border-color: var(--color-line-strong);
 }
 
 .p-button.p-button-text:hover,
