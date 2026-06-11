@@ -11,7 +11,7 @@ A project owns many **environments** (local / dev / stg — each a base URL) and
 ## Install (once)
 
 ```bash
-npm i -g @kozocom/bull-terra
+npm i -g bull-terra
 bull-terra init        # installs Chromium, drops /gen-tests, creates data.db + .env.example
 ```
 

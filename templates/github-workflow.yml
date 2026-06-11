@@ -24,7 +24,7 @@ jobs:
 
       - name: Install bull-terra + Chromium
         run: |
-          npm i -g @kozocom/bull-terra
+          npm i -g bull-terra
           npx playwright install --with-deps chromium
 
       # data.db carries the baselines. Commit it (or restore from cache/artifact)

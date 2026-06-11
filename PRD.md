@@ -211,14 +211,14 @@ Deferred (post-v1, additive):
   Ensure `files` allowlist excludes `.env`, `data.db`, recordings, traces.
 - **Install (any developer):**
   ```bash
-  npm i -g @kozocom/bull-terra        # or unscoped name
+  npm i -g bull-terra
   bull-terra init                     # installs Chromium, drops the skill, creates db, .env.example
   bull-terra serve                    # opens the local dashboard
   ```
 - **`bull-terra init`** does: `npx playwright install chromium` (explicit, not postinstall),
   copy the `gen-tests` skill into `.claude/skills/`, create `data.db`, write `.env.example`,
   and print MCP/credentials setup pointers.
-- **Updates:** `npm i -g @kozocom/bull-terra@latest` then `bull-terra init --upgrade`
+- **Updates:** `npm i -g bull-terra@latest` then `bull-terra init --upgrade`
   (refreshes the skill template only; leaves `data.db` and `.env` intact).
 - **External dependency:** each developer needs the Google Sheets MCP creds
   (`kozocom-mcp` OAuth) set up separately; `init` checks for it and prints instructions
