@@ -5,6 +5,10 @@
   "type": "module",
   "license": "MIT",
   "author": "quangtd@kozo-japan.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/quangtd-kozocom/bull-terra.git"
+  },
   "bin": {
     "bull-terra": "dist/cli.js"
   },
@@ -17,6 +21,9 @@
     "node": ">=20"
   },
   "packageManager": "pnpm@11.5.2",
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "dev:ui": "pnpm --filter ui dev",
     "dev:server": "tsx watch src/cli/index.ts serve --dev",
@@ -25,7 +32,8 @@
     "build": "pnpm run build:ui && pnpm run build:cli",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "cli": "tsx src/cli/index.ts"
+    "cli": "tsx src/cli/index.ts",
+    "release": "bash scripts/release.sh"
   },
   "keywords": [
     "playwright",
