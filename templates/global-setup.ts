@@ -11,7 +11,7 @@ import type { FullConfig } from "@playwright/test";
  * environment:
  *   BASE_URL                 the env's base URL
  *   BULL_TERRA_USER / _PASS  resolved from the .env vars the env names
- *   BULL_TERRA_STORAGE_STATE  auth/<project>-<env>.json (one session per env)
+ *   BULL_TERRA_STORAGE_STATE  recordings/<project>/.auth/<env>.json (one session per env)
  *
  * So this file is env-agnostic: the same flow re-runs per target with the right
  * URL, credentials, and storage-state path supplied from the outside.

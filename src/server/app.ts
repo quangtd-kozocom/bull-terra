@@ -2,7 +2,7 @@ import { serve } from "@hono/node-server";
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { basename, dirname, extname, join } from "node:path";
+import { basename, dirname, extname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
@@ -10,12 +10,15 @@ import {
   authRequirementError,
   authStateInfo,
   featureStartUrl,
+  migrateAuthStateFiles,
   normalizeStartPath,
 } from "../core/auth.js";
+import { cleanProjectArtifacts, deleteRunArtifacts, projectArtifactStats } from "../core/artifacts.js";
 import { Db } from "../core/db.js";
 import { discoverFeatures } from "../core/discover.js";
 import { appendManualTest, removeTestFromSpec } from "../core/manual-tests.js";
 import {
+  envAuthStatePath,
   featureRecordingPath,
   featureRecordingsDir,
   projectRecordingsDir,
@@ -43,6 +46,13 @@ const MIME: Record<string, string> = {
   ".json": "application/json",
   ".woff2": "font/woff2",
   ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".webm": "video/webm",
+  ".zip": "application/zip",
+  ".txt": "text/plain; charset=utf-8",
   ".ico": "image/x-icon",
 };
 
@@ -83,8 +93,8 @@ function moveProjectAuthStates(paths: ProjectPaths, oldName: string, newName: st
 
 function moveEnvAuthState(paths: ProjectPaths, projectName: string, oldName: string, newName: string): void {
   moveIfPossible(
-    join(paths.authDir, `${safeAssetName(projectName)}-${safeAssetName(oldName)}.json`),
-    join(paths.authDir, `${safeAssetName(projectName)}-${safeAssetName(newName)}.json`),
+    envAuthStatePath(paths, projectName, oldName),
+    envAuthStatePath(paths, projectName, newName),
   );
 }
 
@@ -114,6 +124,7 @@ async function captureAuthState(paths: ProjectPaths, env: Environment, storagePa
 export function createApp(opts: ServerOptions): Hono {
   const { paths } = opts;
   const db = new Db(paths.dbPath);
+  migrateAuthStateFiles(db, paths); // legacy auth/<p>-<e>.json → recordings/<p>/.auth/<e>.json
   const runs = new RunManager();
   const app = new Hono();
 
@@ -341,6 +352,30 @@ export function createApp(opts: ServerOptions): Hono {
     return c.json(buildProjectView(db, paths, p, c.req.query("env")));
   });
 
+  // Disk usage of run artifacts (screenshots/videos/traces), per run + total.
+  app.get("/api/projects/:name/artifacts", (c) => {
+    const p = getProjectOr404(c.req.param("name"));
+    if (!p) return c.json({ error: "not found" }, 404);
+    return c.json(projectArtifactStats(db, paths, p));
+  });
+
+  // Delete every run's artifacts (optionally keeping the newest ?keep=N runs).
+  app.delete("/api/projects/:name/artifacts", (c) => {
+    const p = getProjectOr404(c.req.param("name"));
+    if (!p) return c.json({ error: "not found" }, 404);
+    const keep = Math.max(0, Number(c.req.query("keep")) || 0);
+    return c.json(cleanProjectArtifacts(db, paths, p, keep));
+  });
+
+  // Delete one run's artifacts; the run row and its results stay for history.
+  app.delete("/api/projects/:name/runs/:runId/artifacts", (c) => {
+    const p = getProjectOr404(c.req.param("name"));
+    if (!p) return c.json({ error: "not found" }, 404);
+    const run = db.getRun(Number(c.req.param("runId")));
+    if (!run || run.project_id !== p.id) return c.json({ error: "run not found" }, 404);
+    return c.json({ freedBytes: deleteRunArtifacts(db, paths, p, run.id) });
+  });
+
   app.get("/api/projects/:name/runs", (c) => {
     const p = getProjectOr404(c.req.param("name"));
     if (!p) return c.json({ error: "not found" }, 404);
@@ -362,6 +397,7 @@ export function createApp(opts: ServerOptions): Hono {
       status: r.status,
       error: r.error,
       tracePath: r.trace_path,
+      videoPath: r.video_path,
       durationMs: r.duration_ms,
     }));
     return c.json({ run, results });
@@ -468,6 +504,8 @@ export function createApp(opts: ServerOptions): Hono {
       if (error) return c.json({ error }, 400);
     }
 
+    const video = c.req.query("video") === "1";
+
     return streamSSE(c, async (stream) => {
       const send = (e: RunEvent) =>
         stream.writeSSE({ event: e.type, data: JSON.stringify(e) }).catch(() => {});
@@ -475,7 +513,7 @@ export function createApp(opts: ServerOptions): Hono {
       stream.onAbort(() => {
         runs.stop();
       });
-      await runs.run(db, paths, p, env, features.length ? features : undefined, send);
+      await runs.run(db, paths, p, env, features.length ? features : undefined, send, video);
     });
   });
 
@@ -628,11 +666,33 @@ export function createApp(opts: ServerOptions): Hono {
     return c.json({ ok: true });
   });
 
+  // Serve a run artifact (failure screenshot, video, trace zip) inline.
+  // Only run-artifact locations are reachable: recordings/<p>/.runs/ for current
+  // runs, test-results/ for runs recorded before the per-project layout.
+  app.get("/api/artifact", (c) => {
+    const rel = c.req.query("path");
+    if (!rel) return c.json({ error: "path is required" }, 400);
+    const abs = resolve(paths.root, rel);
+    const allowed =
+      abs.startsWith(paths.tracesDir + sep) ||
+      (abs.startsWith(paths.recordingsDir + sep) && abs.includes(`${sep}.runs${sep}`));
+    if (!allowed) {
+      return c.json({ error: "path must be a run artifact" }, 400);
+    }
+    if (!existsSync(abs)) return c.json({ error: "artifact not found" }, 404);
+    return new Response(readFileSync(abs), {
+      headers: { "content-type": MIME[extname(abs).toLowerCase()] ?? "application/octet-stream" },
+    });
+  });
+
   // Open a Playwright trace in the trace viewer (local machine).
   app.post("/api/trace", async (c) => {
     const body = await c.req.json<{ path: string }>();
     const abs = join(paths.root, body.path);
     if (!existsSync(abs)) return c.json({ error: "trace not found" }, 404);
+    if (extname(abs).toLowerCase() !== ".zip") {
+      return c.json({ error: "not a Playwright trace — open it via /api/artifact instead" }, 400);
+    }
     const cli = resolvePlaywrightCli(paths.root);
     spawn(cli.command, [...cli.prefix, "show-trace", abs], {
       cwd: paths.root,

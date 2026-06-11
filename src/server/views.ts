@@ -22,6 +22,8 @@ export interface TestView {
   baseline: string | null;
   error: string | null;
   tracePath: string | null;
+  /** Video of the latest run's steps, when "record video" was on. */
+  videoPath: string | null;
   durationMs: number | null;
   /** Recent outcomes on the active env, newest first (sparkline data). */
   history: TestHistoryEntry[];
@@ -216,6 +218,7 @@ export function buildProjectView(
       baseline: baselines.get(t.testId) ?? null,
       error: result?.error ?? null,
       tracePath: result?.trace_path ?? null,
+      videoPath: result?.video_path ?? null,
       durationMs: result?.duration_ms ?? null,
       history,
       // Mirror the gate's quarantine condition so "flaky" here means "won't trip the gate".

@@ -35,6 +35,7 @@ export function useRun() {
     env: string | undefined,
     knownTitles: string[],
     onEnd?: () => void,
+    video = false,
   ) {
     if (state.running) return;
     state.running = true;
@@ -46,7 +47,7 @@ export function useRun() {
     state.verdict = null;
     state.finishedStatus = null;
 
-    state.dispose = streamRun(projectName, feature, env, (e: RunEvent) => handle(e, onEnd));
+    state.dispose = streamRun(projectName, feature, env, video, (e: RunEvent) => handle(e, onEnd));
   }
 
   function handle(e: RunEvent, onEnd?: () => void) {

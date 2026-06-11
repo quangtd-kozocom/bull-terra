@@ -10,6 +10,8 @@ import { recordCommand } from "./commands/record.js";
 import { projectAdd, projectList, projectRemove } from "./commands/project.js";
 import { envAdd, envDefault, envList, envRemove } from "./commands/env.js";
 import { featureAdd, featureList, featureRemove } from "./commands/feature.js";
+import { cleanCommand } from "./commands/clean.js";
+import { historyCommand } from "./commands/history.js";
 import { installBrowsersCommand } from "./commands/installBrowsers.js";
 
 // Load the installed project's .env so login secrets reach Playwright (PRD §14).
@@ -49,6 +51,7 @@ program
   .option("--env <name>", "environment to run against (defaults to the project's default env)")
   .option("--feature <name>", "run a single feature (folder/file under tests/gen/<project>)")
   .option("--writeback", "emit a Google Sheet write-back payload for the MCP step")
+  .option("--video", "record a video of every test (saved under recordings/<project>/.runs/)")
   .action(async (flags) => runCommand(flags));
 
 program
@@ -60,6 +63,23 @@ program
   .option("--name <name>", "recording name (default: base)")
   .option("--url <url>", "start URL (default: the chosen environment's url)")
   .action(async (flags) => recordCommand(flags));
+
+program
+  .command("history")
+  .description("Show recent runs for an environment (the dashboard's History tab, in the terminal)")
+  .option("--project <name>", "project to inspect (defaults to the only registered project)")
+  .option("--env <name>", "environment (defaults to the project's default env)")
+  .option("--limit <n>", "number of runs to show", "20")
+  .option("--json", "emit raw JSON for scripting")
+  .action(async (flags) => historyCommand(flags));
+
+program
+  .command("clean")
+  .description("Delete run artifacts (screenshots/videos/traces) to reclaim disk space")
+  .option("--project <name>", "project to clean (defaults to the only registered project)")
+  .option("--keep <n>", "keep the newest N runs' artifacts", "10")
+  .option("--dry-run", "report what would be deleted without touching disk")
+  .action(async (flags) => cleanCommand(flags));
 
 program
   .command("install-browsers")

@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { migrateAuthStateFiles } from "../core/auth.js";
 import { Db } from "../core/db.js";
 import { findProjectRoot, projectPaths, type ProjectPaths } from "../core/paths.js";
 import type { Environment, GateVerdict, Project } from "../core/types.js";
@@ -22,7 +23,9 @@ export function resolvePaths(): ProjectPaths {
 }
 
 export function openDb(paths: ProjectPaths): Db {
-  return new Db(paths.dbPath);
+  const db = new Db(paths.dbPath);
+  migrateAuthStateFiles(db, paths); // legacy auth/ files → recordings/<project>/.auth/
+  return db;
 }
 
 /** Resolve a project by name, or the only project if there's exactly one. */

@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, shallowRef, watch } from "vue";
 import { storeToRefs } from "pinia";
-import { useClipboard } from "@vueuse/core";
+import { useClipboard, useLocalStorage } from "@vueuse/core";
 import Button from "primevue/button";
+import Checkbox from "primevue/checkbox";
 import ConfirmDialog from "primevue/confirmdialog";
 import Drawer from "primevue/drawer";
 import Select from "primevue/select";
@@ -43,6 +44,8 @@ const confirm = useConfirm();
 const toast = useToast();
 
 const consoleOpen = shallowRef(false);
+/** Record a video of every test in the next run (handed to testers). Sticky per browser. */
+const recordVideo = useLocalStorage("bull-terra:record-video", false);
 const recording = shallowRef(false);
 const recordingPreviewVisible = shallowRef(false);
 const recordingPreviewLoading = shallowRef(false);
@@ -312,7 +315,14 @@ function runFeature(feature: string | undefined) {
   const titles = selected.value.features
     .filter((item) => !feature || item.feature === feature)
     .flatMap((item) => item.tests.map((test) => test.title));
-  start(selected.value.name, feature, activeEnv.value ?? undefined, titles, projectsStore.refreshSelected);
+  start(
+    selected.value.name,
+    feature,
+    activeEnv.value ?? undefined,
+    titles,
+    projectsStore.refreshSelected,
+    recordVideo.value,
+  );
 }
 
 async function stopRun() {
@@ -531,6 +541,14 @@ async function showTrace(path: string) {
           <div class="mb-3 mt-6 flex items-center justify-between">
             <span class="label text-ink-3">features</span>
             <div class="flex items-center gap-2">
+              <label
+                class="mr-1 flex cursor-pointer items-center gap-1.5 font-mono text-[11px] text-ink-2"
+                v-tooltip.top="'Record a video of every test in the run — saved per run under recordings/<project>/.runs/ for your tester'"
+              >
+                <Checkbox v-model="recordVideo" binary aria-label="Record video of runs" />
+                <i class="pi pi-video text-[11px]" />
+                record video
+              </label>
               <Button
                 label="Add feature"
                 icon="pi pi-plus"

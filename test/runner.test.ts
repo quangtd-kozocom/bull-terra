@@ -31,6 +31,7 @@ const report = {
                   error: { message: "[31mExpected true[0m" },
                   attachments: [
                     { name: "trace", path: "/proj/test-results/app-a-checkout/trace.zip" },
+                    { name: "video", path: "/proj/recordings/app-a/.runs/run-7/checkout/video.webm" },
                   ],
                 },
               ],
@@ -76,6 +77,12 @@ describe("parseJsonReport", () => {
   it("records trace path relative to the project root", () => {
     const failed = results.find((r) => r.title.startsWith("TC-02"))!;
     expect(failed.tracePath).toBe("test-results/app-a-checkout/trace.zip");
+  });
+
+  it("records the video attachment relative to the project root", () => {
+    const failed = results.find((r) => r.title.startsWith("TC-02"))!;
+    expect(failed.videoPath).toBe("recordings/app-a/.runs/run-7/checkout/video.webm");
+    expect(results[0].videoPath).toBeNull(); // no video attachment → null
   });
 
   it("inherits the file for nested suites without their own file", () => {

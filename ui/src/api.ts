@@ -1,4 +1,5 @@
 import type {
+  ArtifactStatsView,
   AuthStateView,
   EnvironmentInput,
   FeatureInput,
@@ -146,6 +147,20 @@ export const api = {
   getRun: (name: string, runId: number) =>
     fetch(`/api/projects/${enc(name)}/runs/${runId}`).then((r) => json<RunDetailView>(r)),
 
+  // run artifacts (screenshots / videos / traces on disk)
+  artifactStats: (name: string) =>
+    fetch(`/api/projects/${enc(name)}/artifacts`).then((r) => json<ArtifactStatsView>(r)),
+
+  deleteRunArtifacts: (name: string, runId: number) =>
+    fetch(`/api/projects/${enc(name)}/runs/${runId}/artifacts`, { method: "DELETE" }).then((r) =>
+      json<{ freedBytes: number }>(r),
+    ),
+
+  cleanArtifacts: (name: string, keep = 0) =>
+    fetch(`/api/projects/${enc(name)}/artifacts?keep=${keep}`, { method: "DELETE" }).then((r) =>
+      json<{ freedBytes: number; deletedRuns: number }>(r),
+    ),
+
   showTrace: (path: string) => post("/api/trace", { path }).then((r) => json(r)),
 
   openFile: (path: string) => post("/api/open", { path }).then((r) => json(r)),
@@ -161,11 +176,13 @@ export function streamRun(
   name: string,
   feature: string | undefined,
   env: string | undefined,
+  video: boolean,
   onEvent: (e: RunEvent) => void,
 ): () => void {
   const qs = new URLSearchParams();
   if (feature) qs.set("feature", feature);
   if (env) qs.set("env", env);
+  if (video) qs.set("video", "1");
   const suffix = qs.toString() ? `?${qs}` : "";
   const es = new EventSource(`/api/projects/${enc(name)}/run${suffix}`);
   const handle = (ev: MessageEvent) => {

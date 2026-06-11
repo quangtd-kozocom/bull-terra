@@ -1,7 +1,7 @@
 import { executeRun } from "../../core/engine.js";
 import { discoverFeatures } from "../../core/discover.js";
 import { authRequirementError } from "../../core/auth.js";
-import { projectSpecsDir } from "../../core/paths.js";
+import { projectSpecsDir, runArtifactsDir } from "../../core/paths.js";
 import { buildWriteback, writeWritebackFile } from "../../core/writeback.js";
 import {
   c,
@@ -19,6 +19,7 @@ export interface RunFlags {
   env?: string;
   feature?: string;
   writeback?: boolean;
+  video?: boolean;
 }
 
 /**
@@ -65,6 +66,7 @@ export async function runCommand(flags: RunFlags): Promise<void> {
       paths,
       specsDir,
       features,
+      video: flags.video,
       onEvent: (e) => {
         if (e.type === "test-end")
           process.stdout.write(e.status === "passed" ? c.green("·") : c.red("·"));
@@ -73,6 +75,12 @@ export async function runCommand(flags: RunFlags): Promise<void> {
     process.stdout.write("\n");
 
     printVerdict(verdict);
+
+    if (flags.video) {
+      console.log(
+        c.dim(`  Videos saved under ${runArtifactsDir(paths, project.name, run.id)} — share the folder with your tester.`),
+      );
+    }
 
     if (flags.writeback) {
       const featureSheet = new Map(db.listFeatures(project.id).map((f) => [f.name, f.sheet_id]));

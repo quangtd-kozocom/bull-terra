@@ -48,13 +48,31 @@ export function projectPaths(root: string = findProjectRoot()): ProjectPaths {
   };
 }
 
-/** auth/<project>-<env>.json — the logged-in storageState for one target. */
+/**
+ * recordings/<project>/.auth/<env>.json — the logged-in storageState for one
+ * target. Lives with the project's other assets; the dot-dir keeps it apart
+ * from feature recording folders (same convention as .history / .runs).
+ */
 export function envAuthStatePath(
   paths: ProjectPaths,
   projectName: string,
   envName: string,
 ): string {
+  return join(projectRecordingsDir(paths, projectName), ".auth", `${safePathSegment(envName)}.json`);
+}
+
+/** Pre-restructure location (auth/<project>-<env>.json), kept only for migration. */
+export function legacyEnvAuthStatePath(
+  paths: ProjectPaths,
+  projectName: string,
+  envName: string,
+): string {
   return join(paths.authDir, `${safePathSegment(projectName)}-${safePathSegment(envName)}.json`);
+}
+
+/** recordings/<project>/.runs/run-<id>/ — Playwright artifacts (screenshots, videos, traces) for one run. */
+export function runArtifactsDir(paths: ProjectPaths, projectName: string, runId: number): string {
+  return join(projectRecordingsDir(paths, projectName), ".runs", `run-${runId}`);
 }
 
 /** recordings/<project>/ */

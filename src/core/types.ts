@@ -50,6 +50,17 @@ export interface Recording {
 
 export type RunStatus = "running" | "passed" | "failed" | "error" | "stopped";
 
+/**
+ * The gate's classification of a finished run, persisted on the run row so
+ * history can show WHY a run failed (regression vs new failure vs flaky).
+ * Stores test ids; counts derive from lengths.
+ */
+export interface RunVerdict {
+  regressions: string[];
+  newFailures: string[];
+  quarantined: string[];
+}
+
 export interface Run {
   id: number;
   project_id: number;
@@ -58,6 +69,8 @@ export interface Run {
   started_at: string;
   finished_at: string | null;
   status: RunStatus;
+  /** Null for runs recorded before verdict persistence existed. */
+  verdict: RunVerdict | null;
 }
 
 export interface Result {
@@ -68,6 +81,7 @@ export interface Result {
   status: TestStatus;
   error: string | null;
   trace_path: string | null;
+  video_path: string | null;
   duration_ms: number | null;
 }
 
@@ -91,6 +105,10 @@ export interface RunSummary {
   failed: number;
   skipped: number;
   duration_ms: number;
+  /** Gate classification counts; all 0 for pre-verdict runs (verdict was null). */
+  regressions: number;
+  newFailures: number;
+  quarantined: number;
 }
 
 export type BaselineStatus = "passed" | "failed";
@@ -122,6 +140,8 @@ export interface ParsedTestResult {
   status: TestStatus;
   error: string | null;
   tracePath: string | null;
+  /** Recorded video of the test steps, when video was enabled for the run. */
+  videoPath: string | null;
   durationMs: number;
 }
 

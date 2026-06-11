@@ -20,7 +20,9 @@ export default defineConfig({
     baseURL: process.env.BASE_URL,
     trace: "on-first-retry",
     screenshot: "only-on-failure",
-    video: "retain-on-failure",
+    // bull-terra sets BULL_TERRA_VIDEO=on for "record this run" — videos of
+    // every step land in the run's artifact folder for handoff to testers.
+    video: process.env.BULL_TERRA_VIDEO === "on" ? "on" : "retain-on-failure",
     // Reuse the logged-in state captured by global-setup, when present.
     storageState: process.env.BULL_TERRA_STORAGE_STATE || undefined,
   },

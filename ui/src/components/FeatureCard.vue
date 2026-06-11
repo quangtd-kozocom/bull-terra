@@ -7,6 +7,7 @@ import Menu from "primevue/menu";
 import type { MenuItem } from "primevue/menuitem";
 import type { FeatureView, RecordingView } from "../types";
 import { healthColor, isRegression, look } from "../lib/status";
+import { artifactKind, artifactLabel, artifactUrl } from "../lib/artifacts";
 import HistorySparkline from "./HistorySparkline.vue";
 
 const props = defineProps<{
@@ -335,12 +336,32 @@ function recordNamed() {
             </span>
 
             <button
-              v-if="t.tracePath"
+              v-if="t.tracePath && artifactKind(t.tracePath) === 'trace'"
               class="shrink-0 font-mono text-[11px] text-ink-2 underline-offset-2 transition hover:text-accent hover:underline"
               @click="emit('trace', t.tracePath!)"
             >
               trace ↗
             </button>
+            <a
+              v-else-if="t.tracePath"
+              :href="artifactUrl(t.tracePath)"
+              target="_blank"
+              rel="noreferrer"
+              class="shrink-0 font-mono text-[11px] text-ink-2 underline-offset-2 transition hover:text-accent hover:underline"
+            >
+              {{ artifactLabel(t.tracePath) }}
+            </a>
+
+            <a
+              v-if="t.videoPath"
+              :href="artifactUrl(t.videoPath)"
+              target="_blank"
+              rel="noreferrer"
+              class="shrink-0 font-mono text-[11px] text-ink-2 underline-offset-2 transition hover:text-accent hover:underline"
+              v-tooltip.top="'Watch the recorded test steps'"
+            >
+              video ↗
+            </a>
 
             <button
               class="shrink-0 font-mono text-[11px] text-ink-3 transition hover:text-fail disabled:cursor-not-allowed disabled:opacity-40"

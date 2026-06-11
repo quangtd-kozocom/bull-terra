@@ -1,7 +1,7 @@
 import type Database from "better-sqlite3";
 import { sql } from "drizzle-orm";
 import { integer, primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
-import type { BaselineStatus, RunStatus, TestStatus } from "./types.js";
+import type { BaselineStatus, RunStatus, RunVerdict, TestStatus } from "./types.js";
 
 // Drizzle table definitions — the single source of truth for typed queries.
 // JS keys deliberately mirror the snake_case columns so a selected row IS the
@@ -65,6 +65,8 @@ export const runs = sqliteTable("runs", {
     .default(sql`(datetime('now'))`),
   finished_at: text("finished_at"),
   status: text("status").notNull().default("running").$type<RunStatus>(),
+  // Gate classification (test ids), set when the run finishes. Null on old rows.
+  verdict: text("verdict", { mode: "json" }).$type<RunVerdict>(),
 });
 
 export const results = sqliteTable("results", {
@@ -75,6 +77,7 @@ export const results = sqliteTable("results", {
   status: text("status").notNull().$type<TestStatus>(),
   error: text("error"),
   trace_path: text("trace_path"),
+  video_path: text("video_path"),
   duration_ms: integer("duration_ms"),
 });
 
@@ -148,7 +151,8 @@ CREATE TABLE IF NOT EXISTS runs (
   feature     TEXT,
   started_at  TEXT NOT NULL DEFAULT (datetime('now')),
   finished_at TEXT,
-  status      TEXT NOT NULL DEFAULT 'running'
+  status      TEXT NOT NULL DEFAULT 'running',
+  verdict     TEXT
 );
 
 CREATE TABLE IF NOT EXISTS results (
@@ -159,6 +163,7 @@ CREATE TABLE IF NOT EXISTS results (
   status     TEXT NOT NULL,
   error      TEXT,
   trace_path TEXT,
+  video_path TEXT,
   duration_ms INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_results_run ON results(run_id);
@@ -232,6 +237,20 @@ export function migrateFeatureScopedRecordings(sqlite: Database.Database): void 
     `);
   });
   tx();
+}
+
+/** Adds runs.verdict for installs created before gate verdicts were persisted. */
+export function migrateRunVerdicts(sqlite: Database.Database): void {
+  const cols = sqlite.prepare(`PRAGMA table_info(runs)`).all() as { name: string }[];
+  if (cols.length === 0 || cols.some((col) => col.name === "verdict")) return;
+  sqlite.exec(`ALTER TABLE runs ADD COLUMN verdict TEXT`);
+}
+
+/** Adds results.video_path for installs created before run videos existed. */
+export function migrateResultVideoPath(sqlite: Database.Database): void {
+  const cols = sqlite.prepare(`PRAGMA table_info(results)`).all() as { name: string }[];
+  if (cols.length === 0 || cols.some((col) => col.name === "video_path")) return;
+  sqlite.exec(`ALTER TABLE results ADD COLUMN video_path TEXT`);
 }
 
 export function migrateFeatureRecordingOptions(sqlite: Database.Database): void {

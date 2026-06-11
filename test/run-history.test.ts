@@ -82,6 +82,35 @@ describe("run history queries", () => {
     });
   });
 
+  describe("run verdict persistence", () => {
+    it("stores the gate verdict on finish and exposes counts in summaries", () => {
+      const r = db.startRun(projectId, envId, null);
+      db.recordResult(r.id, result("a", "failed"));
+      db.recordResult(r.id, result("b", "failed"));
+      db.recordResult(r.id, result("c", "failed"));
+      db.finishRun(r.id, "failed", {
+        regressions: ["a"],
+        newFailures: ["b"],
+        quarantined: ["c"],
+      });
+
+      expect(db.getRun(r.id)?.verdict).toEqual({
+        regressions: ["a"],
+        newFailures: ["b"],
+        quarantined: ["c"],
+      });
+      const [summary] = db.listRunSummaries(projectId, envId);
+      expect(summary).toMatchObject({ regressions: 1, newFailures: 1, quarantined: 1 });
+    });
+
+    it("treats verdict-less (legacy) runs as zero counts", () => {
+      run({ a: "failed" }, "failed"); // finishRun without a verdict
+      const [summary] = db.listRunSummaries(projectId, envId);
+      expect(db.getRun(summary.id)?.verdict).toBeNull();
+      expect(summary).toMatchObject({ regressions: 0, newFailures: 0, quarantined: 0 });
+    });
+  });
+
   describe("flaky flag parity with the gate", () => {
     it("isFlaky matches what evaluateGate quarantines", () => {
       // Flip-flopping history: P F P F — two flips and more.

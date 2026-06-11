@@ -1,6 +1,6 @@
 import type { Db } from "./db.js";
 import { evaluateGate } from "./gate.js";
-import { envAuthStatePath, type ProjectPaths } from "./paths.js";
+import { envAuthStatePath, runArtifactsDir, type ProjectPaths } from "./paths.js";
 import { runSpecs } from "./runner.js";
 import { INJECT_PREFIX } from "./secret-vars.js";
 import type {
@@ -22,6 +22,8 @@ export interface ExecuteOptions {
   features?: string[];
   onEvent?: (e: RunEvent) => void;
   signal?: AbortSignal;
+  /** Record a video of every test so the run can be handed to testers. */
+  video?: boolean;
 }
 
 export interface ExecuteResult {
@@ -60,7 +62,7 @@ export function buildRunEnv(
  * promote baselines, finish the run. Shared by the CLI gate and the dashboard.
  */
 export async function executeRun(opts: ExecuteOptions): Promise<ExecuteResult> {
-  const { db, project, env, paths, specsDir, features, onEvent, signal } = opts;
+  const { db, project, env, paths, specsDir, features, onEvent, signal, video } = opts;
   const featureLabel = features && features.length === 1 ? features[0] : null;
   const run = db.startRun(project.id, env.id, featureLabel);
   onEvent?.({ type: "run-start", runId: run.id, feature: featureLabel, env: env.name });
@@ -71,6 +73,10 @@ export async function executeRun(opts: ExecuteOptions): Promise<ExecuteResult> {
     features,
     signal,
     extraEnv: buildRunEnv(paths, project, env),
+    // Artifacts (screenshots, videos, traces) live with the project's assets,
+    // grouped per run so a whole run can be zipped and handed to a tester.
+    outputDir: runArtifactsDir(paths, project.name, run.id),
+    video,
     onEvent: (e) => onEvent?.(e),
   });
 
@@ -86,7 +92,11 @@ export async function executeRun(opts: ExecuteOptions): Promise<ExecuteResult> {
   else if (verdict.regressions.length > 0 || verdict.newFailures.length > 0) status = "failed";
   else status = "passed";
 
-  db.finishRun(run.id, status);
+  db.finishRun(run.id, status, {
+    regressions: verdict.regressions.map((r) => r.testId),
+    newFailures: verdict.newFailures.map((r) => r.testId),
+    quarantined: verdict.quarantined.map((r) => r.testId),
+  });
   onEvent?.({ type: "run-end", runId: run.id, verdict, status });
 
   return { run: db.getRun(run.id)!, results: outcome.results, verdict };

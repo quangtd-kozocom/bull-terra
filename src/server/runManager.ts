@@ -28,6 +28,7 @@ export class RunManager {
     env: Environment,
     features: string[] | undefined,
     onEvent: (e: RunEvent) => void,
+    video = false,
   ): Promise<void> {
     if (this.current) {
       onEvent({
@@ -48,6 +49,7 @@ export class RunManager {
         features,
         signal: controller.signal,
         onEvent,
+        video,
       });
     } finally {
       this.current = null;

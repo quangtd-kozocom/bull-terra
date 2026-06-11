@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import { and, count, desc, eq, sql } from "drizzle-orm";
+import { and, count, desc, eq, inArray, sql } from "drizzle-orm";
 import { drizzle, type BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
@@ -11,6 +11,8 @@ import {
   migrateFeatureRecordingOptions,
   migrateFeatureScopedRecordings,
   migrateLegacyCredVars,
+  migrateResultVideoPath,
+  migrateRunVerdicts,
   projects,
   recordings,
   results,
@@ -29,6 +31,7 @@ import type {
   Run,
   RunStatus,
   RunSummary,
+  RunVerdict,
   TestHistoryEntry,
 } from "./types.js";
 
@@ -51,6 +54,8 @@ export class Db {
     migrateLegacyCredVars(this.sqlite);
     migrateFeatureScopedRecordings(this.sqlite);
     migrateFeatureRecordingOptions(this.sqlite);
+    migrateRunVerdicts(this.sqlite);
+    migrateResultVideoPath(this.sqlite);
     this.db = drizzle(this.sqlite, { schema });
   }
 
@@ -400,10 +405,10 @@ export class Db {
       .get();
   }
 
-  finishRun(runId: number, status: RunStatus): void {
+  finishRun(runId: number, status: RunStatus, verdict?: RunVerdict): void {
     this.db
       .update(runs)
-      .set({ status, finished_at: sql`datetime('now')` })
+      .set({ status, finished_at: sql`datetime('now')`, ...(verdict ? { verdict } : {}) })
       .where(eq(runs.id, runId))
       .run();
   }
@@ -421,20 +426,22 @@ export class Db {
       .select()
       .from(runs)
       .where(where)
-      .orderBy(desc(runs.started_at))
+      // started_at has 1s resolution — id breaks ties so "newest first" is stable.
+      .orderBy(desc(runs.started_at), desc(runs.id))
       .limit(limit)
       .all();
   }
 
   /** Recent runs with per-run result tallies (newest first), for the history timeline. */
   listRunSummaries(projectId: number, envId: number, limit = 30): RunSummary[] {
-    return this.db
+    const rows = this.db
       .select({
         id: runs.id,
         feature: runs.feature,
         status: runs.status,
         started_at: runs.started_at,
         finished_at: runs.finished_at,
+        verdict: runs.verdict,
         passed: sql<number>`coalesce(sum(${results.status} = 'passed'), 0)`,
         failed: sql<number>`coalesce(sum(${results.status} IN ('failed','timedOut','interrupted')), 0)`,
         skipped: sql<number>`coalesce(sum(${results.status} = 'skipped'), 0)`,
@@ -447,6 +454,12 @@ export class Db {
       .orderBy(desc(runs.started_at), desc(runs.id))
       .limit(limit)
       .all();
+    return rows.map(({ verdict, ...row }) => ({
+      ...row,
+      regressions: verdict?.regressions.length ?? 0,
+      newFailures: verdict?.newFailures.length ?? 0,
+      quarantined: verdict?.quarantined.length ?? 0,
+    }));
   }
 
   // ---- results -----------------------------------------------------------
@@ -461,6 +474,7 @@ export class Db {
         status: r.status,
         error: r.error,
         trace_path: r.tracePath,
+        video_path: r.videoPath,
         duration_ms: r.durationMs,
       })
       .run();
@@ -468,6 +482,34 @@ export class Db {
 
   listResults(runId: number): Result[] {
     return this.db.select().from(results).where(eq(results.run_id, runId)).orderBy(results.id).all();
+  }
+
+  /** Null out artifact pointers after the files are deleted from disk. */
+  clearRunArtifacts(runId: number): void {
+    this.db
+      .update(results)
+      .set({ trace_path: null, video_path: null })
+      .where(eq(results.run_id, runId))
+      .run();
+  }
+
+  /**
+   * Null every reference to the given artifact paths, across ALL runs. Legacy
+   * (pre-.runs) layouts shared files between runs, so deleting one run's file
+   * must also clear the siblings' now-dead links.
+   */
+  clearArtifactPathRefs(relPaths: string[]): void {
+    if (relPaths.length === 0) return;
+    this.db
+      .update(results)
+      .set({ trace_path: null })
+      .where(inArray(results.trace_path, relPaths))
+      .run();
+    this.db
+      .update(results)
+      .set({ video_path: null })
+      .where(inArray(results.video_path, relPaths))
+      .run();
   }
 
   /** Latest known result per test for a project+env (most recent run wins). */

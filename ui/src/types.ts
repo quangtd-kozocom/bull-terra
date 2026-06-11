@@ -16,6 +16,8 @@ export interface TestView {
   baseline: string | null;
   error: string | null;
   tracePath: string | null;
+  /** Video of the latest run's steps, when "record video" was on. */
+  videoPath: string | null;
   durationMs: number | null;
   history: TestHistoryEntry[];
   /** True when the gate's flaky heuristic quarantines this test's failures. */
@@ -101,6 +103,23 @@ export interface RunSummaryView {
   failed: number;
   skipped: number;
   duration_ms: number;
+  /** Gate classification counts; all 0 for runs older than verdict persistence. */
+  regressions: number;
+  newFailures: number;
+  quarantined: number;
+}
+
+/** Disk usage of run artifacts (screenshots/videos/traces). */
+export interface ArtifactStatsView {
+  totalBytes: number;
+  byRun: Record<number, number>;
+}
+
+/** Gate classification stored on a finished run (test ids per bucket). */
+export interface RunVerdictView {
+  regressions: string[];
+  newFailures: string[];
+  quarantined: string[];
 }
 
 export interface RunResultView {
@@ -109,11 +128,19 @@ export interface RunResultView {
   status: string;
   error: string | null;
   tracePath: string | null;
+  videoPath: string | null;
   durationMs: number | null;
 }
 
 export interface RunDetailView {
-  run: { id: number; feature: string | null; status: string; started_at: string; finished_at: string | null };
+  run: {
+    id: number;
+    feature: string | null;
+    status: string;
+    started_at: string;
+    finished_at: string | null;
+    verdict: RunVerdictView | null;
+  };
   results: RunResultView[];
 }
 

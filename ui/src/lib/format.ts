@@ -18,6 +18,14 @@ export function relativeTime(value: string, now = Date.now()): string {
   return parseDbDate(value).toLocaleDateString();
 }
 
+/** "312 KB" / "4.2 MB" for an artifact size on disk. */
+export function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(0)} KB`;
+  if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
+  return `${(bytes / 1024 ** 3).toFixed(2)} GB`;
+}
+
 /** "0.4s" / "12.3s" / "2m 05s" for a millisecond duration. */
 export function formatDuration(ms: number | null | undefined): string {
   if (ms == null) return "–";

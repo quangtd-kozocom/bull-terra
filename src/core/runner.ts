@@ -16,6 +16,10 @@ export interface RunOptions {
   signal?: AbortSignal;
   /** Extra env vars injected into the Playwright process (BASE_URL, creds, storageState…). */
   extraEnv?: Record<string, string | undefined>;
+  /** Playwright artifact output dir for this run (screenshots, videos, traces). */
+  outputDir?: string;
+  /** Record a video of every test (not just failures) so testers can replay the steps. */
+  video?: boolean;
 }
 
 export interface RunOutcome {
@@ -41,12 +45,13 @@ function symbolToStatus(sym: string): TestStatus {
  * parsed per-test results from the JSON reporter.
  */
 export function runSpecs(opts: RunOptions): Promise<RunOutcome> {
-  const { projectRoot, specsDir, features, onEvent, signal, extraEnv } = opts;
+  const { projectRoot, specsDir, features, onEvent, signal, extraEnv, outputDir, video } = opts;
   const jsonDir = mkdtempSync(join(tmpdir(), "bull-terra-"));
   const jsonPath = join(jsonDir, "report.json");
 
   const cli = resolvePlaywrightCli(projectRoot);
   const args = [...cli.prefix, "test", "--reporter=list,json"];
+  if (outputDir) args.push(`--output=${outputDir}`);
   if (features && features.length > 0) {
     // Map each feature to its spec file; Playwright treats positional args as path filters.
     for (const f of features) args.push(join(specsDir, `${f}.spec.ts`));
@@ -69,6 +74,8 @@ export function runSpecs(opts: RunOptions): Promise<RunOutcome> {
         ...process.env,
         ...extraEnv,
         PLAYWRIGHT_JSON_OUTPUT_NAME: jsonPath,
+        // Read by the project's playwright.config.ts to switch video to "on".
+        ...(video ? { BULL_TERRA_VIDEO: "on" } : {}),
         FORCE_COLOR: "0",
       },
       shell: process.platform === "win32",
@@ -176,6 +183,7 @@ export function parseJsonReport(
         last?.attachments?.find((a) => a.name === "trace")?.path ??
         last?.attachments?.find((a) => a.name === "screenshot")?.path ??
         null;
+      const video = last?.attachments?.find((a) => a.name === "video")?.path ?? null;
       out.push({
         testId: makeTestId(specRelPath, spec.title),
         title: spec.title,
@@ -183,6 +191,7 @@ export function parseJsonReport(
         status,
         error: errMsg ? stripAnsi(errMsg) : null,
         tracePath: trace ? relative(projectRoot, trace).split("\\").join("/") : null,
+        videoPath: video ? relative(projectRoot, video).split("\\").join("/") : null,
         durationMs: Math.round(last?.duration ?? 0),
       });
     }
