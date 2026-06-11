@@ -11,18 +11,19 @@ export interface Project {
 
 /**
  * A target the same app is deployed to (local / dev / stg / prod). Holds the base
- * URL and the *names* of the .env vars that supply this env's login credentials,
- * so secrets never touch the DB. Exactly one env per project is the `is_default`.
+ * URL and a map of the *names* of the .env vars that supply this env's secrets, so
+ * secrets never touch the DB. Exactly one env per project is the `is_default`.
  */
 export interface Environment {
   id: number;
   project_id: number;
   name: string;
   url: string;
-  /** Name of the .env var holding the username, e.g. "APP_A_STG_USER" (or null = unauthenticated). */
-  user_var: string | null;
-  /** Name of the .env var holding the password. */
-  pass_var: string | null;
+  /**
+   * KEY -> .env variable NAME, e.g. { USER: "APP_A_STG_USER", API_KEY: "APP_A_STG_KEY" }.
+   * Names only; values live in .env. Each is injected at run time as BULL_TERRA_<KEY>.
+   */
+  secret_vars: Record<string, string>;
   is_default: 0 | 1;
   created_at: string;
 }

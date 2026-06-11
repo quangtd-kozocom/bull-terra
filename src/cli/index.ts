@@ -74,13 +74,17 @@ project
 project.command("list").description("List registered projects + their environments").action(() => projectList());
 project.command("rm <name>").description("Remove a project from the registry").action((name) => projectRemove(name));
 
+const collect = (value: string, acc: string[]) => acc.concat(value);
+
 const env = program.command("env").description("Manage a project's environments (local / dev / stg …)");
 env
   .command("add <project> <name> <url>")
   .description("Add (or update) an environment for a project")
   .option("--default", "make this the project's default environment")
-  .option("--user-var <name>", "name of the .env var holding this env's login username")
-  .option("--pass-var <name>", "name of the .env var holding this env's login password")
+  .option("--var <key=name>", "name a secret .env var as KEY=ENV_VAR_NAME (repeatable)", collect, [])
+  .option("--unset <key>", "remove a previously-registered secret var by KEY (repeatable)", collect, [])
+  .option("--user-var <name>", "sugar for --var USER=<name>")
+  .option("--pass-var <name>", "sugar for --var PASS=<name>")
   .action((projectName, name, url, flags) => envAdd(projectName, name, url, flags));
 env.command("list <project>").description("List a project's environments").action((p) => envList(p));
 env.command("default <project> <name>").description("Set the default environment").action((p, n) => envDefault(p, n));

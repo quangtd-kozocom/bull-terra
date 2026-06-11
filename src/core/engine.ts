@@ -2,6 +2,7 @@ import type { Db } from "./db.js";
 import { evaluateGate } from "./gate.js";
 import { envAuthStatePath, type ProjectPaths } from "./paths.js";
 import { runSpecs } from "./runner.js";
+import { INJECT_PREFIX } from "./secret-vars.js";
 import type {
   Environment,
   GateVerdict,
@@ -31,9 +32,10 @@ export interface ExecuteResult {
 
 /**
  * Resolve the env vars injected into the Playwright process for a target env:
- * the base URL, the storage-state path, and the login credentials looked up
- * from the .env vars this env *names* (user_var / pass_var) — secrets never
- * live in the DB, only the variable names do.
+ * the base URL, the storage-state path, and the secrets looked up from the .env
+ * vars this env *names* (its secret_vars map) — secrets never live in the DB,
+ * only the variable names do. Each key K is injected as BULL_TERRA_<K>, so the
+ * USER/PASS keys become the BULL_TERRA_USER/_PASS that global-setup.ts reads.
  */
 export function buildRunEnv(
   paths: ProjectPaths,
@@ -45,10 +47,10 @@ export function buildRunEnv(
     BULL_TERRA_ENV: env.name,
     BULL_TERRA_STORAGE_STATE: envAuthStatePath(paths, project.name, env.name),
   };
-  const user = env.user_var ? process.env[env.user_var] : undefined;
-  const pass = env.pass_var ? process.env[env.pass_var] : undefined;
-  if (user) out.BULL_TERRA_USER = user;
-  if (pass) out.BULL_TERRA_PASS = pass;
+  for (const [key, varName] of Object.entries(env.secret_vars)) {
+    const value = process.env[varName];
+    if (value) out[`${INJECT_PREFIX}${key}`] = value;
+  }
   return out;
 }
 

@@ -24,8 +24,8 @@ export interface EnvironmentView {
   id: number;
   name: string;
   url: string;
-  userVar: string | null;
-  passVar: string | null;
+  /** KEY -> .env variable NAME. Names only; values stay in .env. */
+  secretVars: Record<string, string>;
   isDefault: boolean;
 }
 
@@ -60,8 +60,8 @@ export type RunEvent =
 export interface NewEnvironment {
   name: string;
   url: string;
-  userVar?: string;
-  passVar?: string;
+  /** KEY -> .env variable NAME. */
+  secretVars: Record<string, string>;
   isDefault?: boolean;
 }
 

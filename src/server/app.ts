@@ -9,6 +9,7 @@ import { Db } from "../core/db.js";
 import { discoverFeatures } from "../core/discover.js";
 import { projectRecordingsDir, projectSpecsDir, type ProjectPaths } from "../core/paths.js";
 import { chromiumInstalled, resolvePlaywrightCli } from "../core/playwright.js";
+import { normalizeSecretVars } from "../core/secret-vars.js";
 import type { RunEvent } from "../core/types.js";
 import { RunManager } from "./runManager.js";
 import { buildProjectView } from "./views.js";
@@ -131,14 +132,17 @@ export function createApp(opts: ServerOptions): Hono {
     const p = getProjectOr404(c.req.param("name"));
     if (!p) return c.json({ error: "not found" }, 404);
     const body = await c.req
-      .json<{ name: string; url: string; userVar?: string; passVar?: string; isDefault?: boolean }>()
+      .json<{ name: string; url: string; secretVars?: Record<string, unknown>; isDefault?: boolean }>()
       .catch(() => null);
     if (!body?.name || !body?.url) return c.json({ error: "name and url are required" }, 400);
-    db.upsertEnvironment(p.id, body.name, body.url, {
-      userVar: body.userVar ?? null,
-      passVar: body.passVar ?? null,
-      isDefault: body.isDefault,
-    });
+    try {
+      db.upsertEnvironment(p.id, body.name, body.url, {
+        secretVars: normalizeSecretVars(body.secretVars ?? {}),
+        isDefault: body.isDefault,
+      });
+    } catch (e) {
+      return c.json({ error: (e as Error).message }, 400);
+    }
     return c.json(buildProjectView(db, paths, p, body.name));
   });
 
@@ -165,7 +169,7 @@ export function createApp(opts: ServerOptions): Hono {
     const current = db.getEnvironment(p.id, currentName);
     if (!current) return c.json({ error: "no such environment" }, 404);
     const body = await c.req
-      .json<{ name: string; url: string; userVar?: string | null; passVar?: string | null }>()
+      .json<{ name: string; url: string; secretVars?: Record<string, unknown> }>()
       .catch(() => null);
     const name = body?.name?.trim();
     const url = body?.url?.trim();
@@ -177,8 +181,7 @@ export function createApp(opts: ServerOptions): Hono {
       db.updateEnvironment(p.id, currentName, {
         name,
         url,
-        userVar: body?.userVar?.trim() || null,
-        passVar: body?.passVar?.trim() || null,
+        secretVars: normalizeSecretVars(body?.secretVars ?? {}),
       });
       return c.json(buildProjectView(db, paths, p, name));
     } catch (e) {

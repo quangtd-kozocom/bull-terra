@@ -97,7 +97,14 @@ function confirmRemove(env: EnvironmentView) {
 
           <span class="w-20 shrink-0 truncate font-display text-sm font-bold text-ink">{{ env.name }}</span>
           <span class="min-w-0 flex-1 truncate font-mono text-[11px] text-ink-2">{{ env.url }}</span>
-          <Tag v-if="env.userVar" severity="secondary" :value="env.userVar" class="max-w-28 truncate font-mono" />
+          <Tag
+            v-for="key in Object.keys(env.secretVars)"
+            :key="key"
+            severity="secondary"
+            :value="key"
+            class="max-w-28 truncate font-mono"
+            v-tooltip.top="`$${env.secretVars[key]}`"
+          />
 
           <Button
             icon="pi pi-pencil"

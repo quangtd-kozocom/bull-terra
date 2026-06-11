@@ -1,25 +1,57 @@
-import { c, openDb, resolvePaths, resolveProject } from "../util.js";
+import { normalizeKey, parseVarFlag } from "../../core/secret-vars.js";
+import type { Environment } from "../../core/types.js";
+import { c, CliError, openDb, resolvePaths, resolveProject } from "../util.js";
 
 export interface EnvAddFlags {
   project?: string;
   default?: boolean;
+  /** Sugar: --user-var X === --var USER=X. */
   userVar?: string;
+  /** Sugar: --pass-var X === --var PASS=X. */
   passVar?: string;
+  /** Repeatable --var KEY=ENV_VAR_NAME specs. */
+  var?: string[];
+  /** Repeatable --unset KEY to drop a previously-registered var. */
+  unset?: string[];
 }
 
-/** `bull-terra env add <project> <name> <url> [--default --user-var X --pass-var Y]` */
+/** One-line "vars: USER=$APP_A_STG_USER, …" (or the unauthenticated note). */
+function describeVars(env: Environment): string {
+  const keys = Object.keys(env.secret_vars);
+  if (!keys.length) return c.dim("  (unauthenticated)");
+  return c.dim(`  vars: ${keys.map((k) => `${k}=$${env.secret_vars[k]}`).join(", ")}`);
+}
+
+/**
+ * `bull-terra env add <project> <name> <url>
+ *    [--default] [--user-var X] [--pass-var Y] [--var KEY=Z]… [--unset KEY]…`
+ */
 export function envAdd(project: string, name: string, url: string, flags: EnvAddFlags): void {
   const db = openDb(resolvePaths());
   try {
+    const secretVars: Record<string, string> = {};
+    let unset: string[] = [];
+    try {
+      if (flags.userVar) secretVars.USER = flags.userVar;
+      if (flags.passVar) secretVars.PASS = flags.passVar;
+      for (const spec of flags.var ?? []) {
+        const [key, varName] = parseVarFlag(spec);
+        secretVars[key] = varName;
+      }
+      unset = (flags.unset ?? []).map(normalizeKey);
+    } catch (e) {
+      throw new CliError((e as Error).message);
+    }
+
     const p = resolveProject(db, project);
     const env = db.upsertEnvironment(p.id, name, url, {
-      userVar: flags.userVar ?? null,
-      passVar: flags.passVar ?? null,
+      secretVars,
+      unset,
       isDefault: flags.default,
     });
     console.log(
       `${c.green("✓")} ${env.is_default ? c.cyan("★ ") : ""}${c.bold(`${p.name}/${env.name}`)} → ${c.cyan(env.url)}` +
-        (env.user_var ? c.dim(`  creds from $${env.user_var} / $${env.pass_var}`) : c.dim("  (unauthenticated)")),
+        describeVars(env),
     );
   } finally {
     db.close();
@@ -35,11 +67,13 @@ export function envList(project: string): void {
       console.log(c.dim(`No environments for ${p.name}. Add one: bull-terra env add ${p.name} <name> <url>`));
       return;
     }
-    for (const e of envs)
+    for (const e of envs) {
+      const keys = Object.keys(e.secret_vars);
       console.log(
         `  ${e.is_default ? c.cyan("★") : " "} ${c.bold(e.name)}  ${c.cyan(e.url)}` +
-          (e.user_var ? c.dim(`  [${e.user_var}/${e.pass_var}]`) : ""),
+          (keys.length ? c.dim(`  [${keys.join(", ")}]`) : ""),
       );
+    }
   } finally {
     db.close();
   }

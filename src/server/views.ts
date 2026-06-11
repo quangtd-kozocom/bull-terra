@@ -30,8 +30,8 @@ export interface EnvironmentView {
   id: number;
   name: string;
   url: string;
-  userVar: string | null;
-  passVar: string | null;
+  /** KEY -> .env variable NAME. Names only; values stay in .env. */
+  secretVars: Record<string, string>;
   isDefault: boolean;
 }
 
@@ -53,8 +53,7 @@ function envView(e: Environment): EnvironmentView {
     id: e.id,
     name: e.name,
     url: e.url,
-    userVar: e.user_var,
-    passVar: e.pass_var,
+    secretVars: e.secret_vars,
     isDefault: e.is_default === 1,
   };
 }

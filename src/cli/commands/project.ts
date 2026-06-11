@@ -29,11 +29,13 @@ export function projectList(): void {
         `  ${c.bold(p.name)}  ` +
           c.dim(`${envs.length} env(s), ${feats.length} feature(s), ${recs} recording(s)`),
       );
-      for (const e of envs)
+      for (const e of envs) {
+        const keys = Object.keys(e.secret_vars);
         console.log(
           `      ${e.is_default ? c.cyan("★") : " "} ${e.name}  ${c.dim(e.url)}` +
-            (e.user_var ? c.dim(`  [${e.user_var}/${e.pass_var}]`) : ""),
+            (keys.length ? c.dim(`  [${keys.join(", ")}]`) : ""),
         );
+      }
     }
   } finally {
     db.close();
