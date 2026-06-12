@@ -111,6 +111,19 @@ export interface RunSummary {
   quarantined: number;
 }
 
+/** One recorded test video (screencast) with its run context, for the screencasts tab. */
+export interface Screencast {
+  runId: number;
+  feature: string | null;
+  testId: string;
+  title: string;
+  status: TestStatus;
+  videoPath: string;
+  durationMs: number | null;
+  /** started_at of the run that produced this video. */
+  at: string;
+}
+
 export type BaselineStatus = "passed" | "failed";
 
 /** Baselines are keyed per environment so "green on stg" and "green on local" are tracked apart. */

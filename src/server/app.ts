@@ -13,7 +13,7 @@ import {
   migrateAuthStateFiles,
   normalizeStartPath,
 } from "../core/auth.js";
-import { cleanProjectArtifacts, deleteRunArtifacts, projectArtifactStats } from "../core/artifacts.js";
+import { cleanProjectArtifacts, deleteRunArtifacts, deleteRunHistory, projectArtifactStats } from "../core/artifacts.js";
 import { Db } from "../core/db.js";
 import { discoverFeatures } from "../core/discover.js";
 import { appendManualTest, removeTestFromSpec } from "../core/manual-tests.js";
@@ -384,6 +384,40 @@ export function createApp(opts: ServerOptions): Hono {
     if (!env) return c.json({ error: "environment not found" }, 404);
     const limit = Math.min(Number(c.req.query("limit")) || 30, 200);
     return c.json(db.listRunSummaries(p.id, env.id, limit));
+  });
+
+  // Erase runs from history (results + artifacts + the run rows themselves).
+  // ?ids=1,2,3 deletes those runs; without ids, every run on the env is erased.
+  app.delete("/api/projects/:name/runs", (c) => {
+    const p = getProjectOr404(c.req.param("name"));
+    if (!p) return c.json({ error: "not found" }, 404);
+    const idsParam = c.req.query("ids");
+    let runIds: number[];
+    if (idsParam) {
+      runIds = idsParam.split(",").map(Number);
+      if (runIds.some((id) => !Number.isInteger(id))) return c.json({ error: "invalid ids" }, 400);
+      const foreign = runIds.find((id) => db.getRun(id)?.project_id !== p.id);
+      if (foreign != null) return c.json({ error: `run ${foreign} not found` }, 404);
+    } else {
+      const envName = c.req.query("env");
+      const env = envName ? db.getEnvironment(p.id, envName) : db.getDefaultEnvironment(p.id);
+      if (!env) return c.json({ error: "environment not found" }, 404);
+      runIds = db.listRuns(p.id, env.id, 10_000).map((run) => run.id);
+    }
+    // Never delete a run that's still in flight — the runner is writing to it.
+    runIds = runIds.filter((id) => db.getRun(id)?.status !== "running");
+    return c.json(deleteRunHistory(db, paths, p, runIds));
+  });
+
+  // Recorded test videos (screencasts) on one env, newest first.
+  app.get("/api/projects/:name/screencasts", (c) => {
+    const p = getProjectOr404(c.req.param("name"));
+    if (!p) return c.json({ error: "not found" }, 404);
+    const envName = c.req.query("env");
+    const env = envName ? db.getEnvironment(p.id, envName) : db.getDefaultEnvironment(p.id);
+    if (!env) return c.json({ error: "environment not found" }, 404);
+    const limit = Math.min(Number(c.req.query("limit")) || 100, 500);
+    return c.json(db.listScreencasts(p.id, env.id, limit));
   });
 
   app.get("/api/projects/:name/runs/:runId", (c) => {

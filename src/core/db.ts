@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import { and, count, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, count, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { drizzle, type BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
@@ -32,6 +32,7 @@ import type {
   RunStatus,
   RunSummary,
   RunVerdict,
+  Screencast,
   TestHistoryEntry,
 } from "./types.js";
 
@@ -462,6 +463,11 @@ export class Db {
     }));
   }
 
+  /** Drop a run from history. Its results go with it (FK cascade); artifacts are the caller's job. */
+  deleteRun(runId: number): void {
+    this.db.delete(runs).where(eq(runs.id, runId)).run();
+  }
+
   // ---- results -----------------------------------------------------------
 
   recordResult(runId: number, r: ParsedTestResult): void {
@@ -559,6 +565,33 @@ export class Db {
       }
     }
     return map;
+  }
+
+  /** Every recorded test video on one env (newest first), for the screencasts tab. */
+  listScreencasts(projectId: number, envId: number, limit = 100): Screencast[] {
+    return this.db
+      .select({
+        runId: results.run_id,
+        feature: runs.feature,
+        testId: results.test_id,
+        title: results.title,
+        status: results.status,
+        videoPath: sql<string>`${results.video_path}`,
+        durationMs: results.duration_ms,
+        at: runs.started_at,
+      })
+      .from(results)
+      .innerJoin(runs, eq(runs.id, results.run_id))
+      .where(
+        and(
+          eq(runs.project_id, projectId),
+          eq(runs.env_id, envId),
+          isNotNull(results.video_path),
+        ),
+      )
+      .orderBy(desc(results.id))
+      .limit(limit)
+      .all();
   }
 
   /** Status history for a single test on one env (newest first), used for flaky detection. */

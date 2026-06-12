@@ -63,7 +63,7 @@ describe("appendManualTest", () => {
 
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
-  it("creates a manual section with a failing TODO assertion", () => {
+  it("creates a manual section with a passing default smoke assertion", () => {
     const { tcId, title } = appendManualTest(specPath, RECORDING, "M01", "user can checkout");
     expect(tcId).toBe("TC-M01");
     expect(title).toBe("TC-M01: user can checkout");
@@ -72,7 +72,8 @@ describe("appendManualTest", () => {
     expect(out).toContain("// <bull-terra:manual>");
     expect(out).toContain("// </bull-terra:manual>");
     expect(out).toContain('test("TC-M01: user can checkout", async ({ page }) => {');
-    expect(out).toContain('expect.soft(false, "TODO: replace with a real assertion").toBe(true)');
+    expect(out).toContain("// TODO: replace this default smoke assertion");
+    expect(out).toContain('expect.soft(page.locator("body"), "default smoke assertion").toBeAttached()');
     expect(out).toContain('import { test, expect } from "@playwright/test";');
   });
 

@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, shallowRef, watch } from "vue";
+import { computed, ref, shallowRef, watch } from "vue";
 import Button from "primevue/button";
+import Checkbox from "primevue/checkbox";
 import { useConfirm } from "primevue/useconfirm";
 import { api } from "../api";
 import type { ArtifactStatsView, RunDetailView, RunSummaryView } from "../types";
@@ -27,6 +28,14 @@ const expanded = ref(new Set<number>());
 const details = ref<Record<number, RunDetailView | null>>({});
 const artifacts = shallowRef<ArtifactStatsView>({ totalBytes: 0, byRun: {} });
 const cleaning = shallowRef(false);
+const deleting = shallowRef(false);
+const selectedIds = ref(new Set<number>());
+
+/** Runs that can be erased — a run still in flight is the runner's, not ours. */
+const selectable = computed(() => runs.value.filter((r) => r.status !== "running"));
+const allSelected = computed(
+  () => selectable.value.length > 0 && selectable.value.every((r) => selectedIds.value.has(r.id)),
+);
 
 async function load() {
   loading.value = true;
@@ -37,6 +46,7 @@ async function load() {
     ]);
     expanded.value = new Set();
     details.value = {};
+    selectedIds.value = new Set();
   } catch (error) {
     emit("error", error);
   } finally {
@@ -72,6 +82,64 @@ async function toggle(runId: number) {
     expanded.value = new Set([...expanded.value].filter((id) => id !== runId));
     emit("error", error);
   }
+}
+
+function toggleSelected(runId: number) {
+  const next = new Set(selectedIds.value);
+  if (next.has(runId)) next.delete(runId);
+  else next.add(runId);
+  selectedIds.value = next;
+}
+
+function toggleSelectAll() {
+  selectedIds.value = allSelected.value ? new Set() : new Set(selectable.value.map((r) => r.id));
+}
+
+function confirmDeleteSelected() {
+  const ids = [...selectedIds.value];
+  if (!ids.length) return;
+  confirm.require({
+    header: "Delete history",
+    message: `Permanently delete ${ids.length} run${ids.length > 1 ? "s" : ""} from history — their results, artifacts and timeline entries? Baselines for regression detection are kept. This can't be undone.`,
+    icon: "pi pi-exclamation-triangle",
+    rejectLabel: "Cancel",
+    acceptLabel: "Delete history",
+    acceptClass: "p-button-danger",
+    accept: async () => {
+      deleting.value = true;
+      try {
+        await api.deleteRuns(props.projectName, ids, props.env ?? undefined);
+        await load();
+      } catch (error) {
+        emit("error", error);
+      } finally {
+        deleting.value = false;
+      }
+    },
+  });
+}
+
+function confirmDeleteAllHistory() {
+  if (!runs.value.length) return;
+  confirm.require({
+    header: "Delete all history",
+    message: `Permanently delete ALL run history for ${props.projectName}${props.env ? ` · ${props.env}` : ""} — every run's results, artifacts and timeline entry? Baselines for regression detection are kept. This can't be undone.`,
+    icon: "pi pi-exclamation-triangle",
+    rejectLabel: "Cancel",
+    acceptLabel: "Delete all history",
+    acceptClass: "p-button-danger",
+    accept: async () => {
+      deleting.value = true;
+      try {
+        await api.deleteRuns(props.projectName, undefined, props.env ?? undefined);
+        await load();
+      } catch (error) {
+        emit("error", error);
+      } finally {
+        deleting.value = false;
+      }
+    },
+  });
 }
 
 function confirmDeleteRunArtifacts(runId: number) {
@@ -132,7 +200,23 @@ function gateTag(runId: number, testId: string): "regression" | "new" | "flaky" 
 <template>
   <div>
     <div class="mb-3 flex items-center justify-between gap-3">
-      <span class="label text-ink-3">run history{{ env ? ` · ${env}` : "" }}</span>
+      <div class="flex items-center gap-3">
+        <span class="label text-ink-3">run history{{ env ? ` · ${env}` : "" }}</span>
+        <label
+          v-if="selectable.length"
+          class="flex cursor-pointer items-center gap-1.5 font-mono text-[11px] text-ink-2"
+          v-tooltip.top="'Select every run for deletion'"
+        >
+          <Checkbox
+            :model-value="allSelected"
+            binary
+            :disabled="deleting"
+            aria-label="Select all runs"
+            @update:model-value="toggleSelectAll"
+          />
+          select all
+        </label>
+      </div>
       <div class="flex items-center gap-2">
         <span
           v-if="artifacts.totalBytes"
@@ -142,6 +226,25 @@ function gateTag(runId: number, testId: string): "regression" | "new" | "flaky" 
           {{ formatBytes(artifacts.totalBytes) }} on disk
         </span>
         <Button
+          v-if="selectedIds.size"
+          :label="`Delete ${selectedIds.size} selected`"
+          icon="pi pi-trash"
+          size="small"
+          severity="danger"
+          :loading="deleting"
+          @click="confirmDeleteSelected"
+        />
+        <Button
+          v-if="runs.length"
+          label="Delete all history"
+          icon="pi pi-trash"
+          size="small"
+          severity="danger"
+          outlined
+          :loading="deleting"
+          @click="confirmDeleteAllHistory"
+        />
+        <Button
           v-if="artifacts.totalBytes"
           label="Clear artifacts"
           icon="pi pi-trash"
@@ -149,6 +252,7 @@ function gateTag(runId: number, testId: string): "regression" | "new" | "flaky" 
           severity="danger"
           outlined
           :loading="cleaning"
+          v-tooltip.top="'Delete files only — keep the run history rows'"
           @click="confirmCleanAll"
         />
         <Button
@@ -167,7 +271,20 @@ function gateTag(runId: number, testId: string): "regression" | "new" | "flaky" 
       <li v-for="r in runs" :key="r.id" class="rise overflow-hidden rounded-md border border-line bg-card">
         <!-- summary row -->
         <div class="flex items-center gap-1 pr-2">
-        <button class="flex min-w-0 flex-1 items-center gap-3 px-4 py-2.5 text-left" @click="toggle(r.id)">
+        <span
+          class="grid place-items-center pl-3"
+          @click.stop
+        >
+          <Checkbox
+            v-if="r.status !== 'running'"
+            :model-value="selectedIds.has(r.id)"
+            binary
+            :disabled="deleting"
+            :aria-label="`Select run #${r.id}`"
+            @update:model-value="toggleSelected(r.id)"
+          />
+        </span>
+        <button class="flex min-w-0 flex-1 items-center gap-3 py-2.5 pl-1 pr-4 text-left" @click="toggle(r.id)">
           <svg
             viewBox="0 0 24 24"
             class="h-3.5 w-3.5 shrink-0 text-ink-3 transition-transform"

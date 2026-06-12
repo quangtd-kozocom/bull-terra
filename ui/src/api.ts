@@ -9,6 +9,7 @@ import type {
   RunDetailView,
   RunEvent,
   RunSummaryView,
+  ScreencastView,
 } from "./types";
 
 async function json<T>(res: Response): Promise<T> {
@@ -146,6 +147,23 @@ export const api = {
 
   getRun: (name: string, runId: number) =>
     fetch(`/api/projects/${enc(name)}/runs/${runId}`).then((r) => json<RunDetailView>(r)),
+
+  /** Erase runs from history (results + artifacts + the runs). No ids → the whole env's history. */
+  deleteRuns: (name: string, ids?: number[], env?: string) => {
+    const qs = new URLSearchParams();
+    if (ids?.length) qs.set("ids", ids.join(","));
+    else if (env) qs.set("env", env);
+    const suffix = qs.toString() ? `?${qs}` : "";
+    return fetch(`/api/projects/${enc(name)}/runs${suffix}`, { method: "DELETE" }).then((r) =>
+      json<{ freedBytes: number; deletedRuns: number }>(r),
+    );
+  },
+
+  // recorded test videos (screencasts)
+  listScreencasts: (name: string, env?: string, limit = 100) =>
+    fetch(
+      `/api/projects/${enc(name)}/screencasts?limit=${limit}${env ? `&env=${enc(env)}` : ""}`,
+    ).then((r) => json<ScreencastView[]>(r)),
 
   // run artifacts (screenshots / videos / traces on disk)
   artifactStats: (name: string) =>

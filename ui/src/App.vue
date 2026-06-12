@@ -26,6 +26,7 @@ import { useProjectsStore } from "./stores/projects";
 import Sidebar from "./components/Sidebar.vue";
 import FeatureCard from "./components/FeatureCard.vue";
 import RunHistory from "./components/RunHistory.vue";
+import Screencasts from "./components/Screencasts.vue";
 import EnvCard from "./components/EnvCard.vue";
 import RunConsole from "./components/RunConsole.vue";
 import ProjectDialog from "./components/ProjectDialog.vue";
@@ -508,7 +509,7 @@ async function showTrace(path: string) {
           <!-- tabs -->
           <nav class="-mb-px mt-5 flex gap-6">
             <button
-              v-for="tab in (['run', 'history', 'environments'] as const)"
+              v-for="tab in (['run', 'history', 'screencasts', 'environments'] as const)"
               :key="tab"
               class="label border-b-2 pb-3 transition"
               :class="
@@ -617,6 +618,17 @@ async function showTrace(path: string) {
             :env="activeEnv"
             :running="run.running"
             @trace="showTrace"
+            @error="showError"
+          />
+        </div>
+
+        <!-- SCREENCASTS TAB -->
+        <div v-else-if="activeTab === 'screencasts'" class="min-h-0 flex-1 overflow-y-auto px-7 py-6">
+          <Screencasts
+            :key="`${selected.name}:${activeEnv ?? ''}`"
+            :project-name="selected.name"
+            :env="activeEnv"
+            :running="run.running"
             @error="showError"
           />
         </div>

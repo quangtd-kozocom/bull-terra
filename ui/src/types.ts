@@ -109,6 +109,19 @@ export interface RunSummaryView {
   quarantined: number;
 }
 
+/** A recorded test video with its run context — one card on the screencasts tab. */
+export interface ScreencastView {
+  runId: number;
+  feature: string | null;
+  testId: string;
+  title: string;
+  status: string;
+  videoPath: string;
+  durationMs: number | null;
+  /** started_at of the run that produced this video. */
+  at: string;
+}
+
 /** Disk usage of run artifacts (screenshots/videos/traces). */
 export interface ArtifactStatsView {
   totalBytes: number;

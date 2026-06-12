@@ -43,7 +43,8 @@ export function appendManualTest(
   const testBlock = [
     `test(${JSON.stringify(testTitle)}, async ({ page }) => {`,
     indent(body, "  "),
-    `  await expect.soft(false, "TODO: replace with a real assertion").toBe(true);`,
+    `  // TODO: replace this default smoke assertion with one specific to this test case.`,
+    `  await expect.soft(page.locator("body"), "default smoke assertion").toBeAttached();`,
     `});`,
   ].join("\n");
 

@@ -8,7 +8,7 @@ export const useProjectsStore = defineStore("projects", () => {
   const projects = shallowRef<ProjectView[]>([]);
   const selectedName = useLocalStorage<string | null>("bull-terra:selected-project", null);
   const activeEnv = useLocalStorage<string | null>("bull-terra:active-env", null);
-  const activeTab = useLocalStorage<"run" | "history" | "environments">(
+  const activeTab = useLocalStorage<"run" | "history" | "screencasts" | "environments">(
     "bull-terra:active-tab",
     "run",
   );

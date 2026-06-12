@@ -89,6 +89,28 @@ export function deleteRunArtifacts(db: Db, paths: ProjectPaths, project: Project
 }
 
 /**
+ * Erase runs from history entirely: artifacts on disk, then the run rows and
+ * their results. Unlike deleteRunArtifacts, nothing of the run survives —
+ * baselines stay, so regression detection keeps its "last known status".
+ */
+export function deleteRunHistory(
+  db: Db,
+  paths: ProjectPaths,
+  project: Project,
+  runIds: number[],
+): { freedBytes: number; deletedRuns: number } {
+  let freedBytes = 0;
+  for (const runId of runIds) {
+    freedBytes += deleteRunArtifacts(db, paths, project, runId);
+    db.deleteRun(runId);
+  }
+  if (db.listRuns(project.id, undefined, 1).length === 0) {
+    rmSync(join(projectRecordingsDir(paths, project.name), ".runs"), { recursive: true, force: true });
+  }
+  return { freedBytes, deletedRuns: runIds.length };
+}
+
+/**
  * Delete artifacts for all of a project's runs except the newest `keep`.
  * keep=0 wipes everything (including the now-empty .runs dir).
  */
