@@ -10,6 +10,7 @@ import type {
   RunEvent,
   RunSummaryView,
   ScreencastView,
+  TestSourceView,
 } from "./types";
 
 async function json<T>(res: Response): Promise<T> {
@@ -99,6 +100,27 @@ export const api = {
       { method: "DELETE" },
     ).then((r) => json<ProjectView>(r)),
 
+  getTest: (name: string, feature: string, title: string) =>
+    fetch(`/api/projects/${enc(name)}/features/${enc(feature)}/tests?title=${enc(title)}`).then(
+      (r) => json<TestSourceView>(r),
+    ),
+
+  saveTest: (
+    name: string,
+    feature: string,
+    oldTitle: string,
+    body: { title: string; source: string },
+    env?: string,
+  ) =>
+    fetch(
+      `/api/projects/${enc(name)}/features/${enc(feature)}/tests?title=${enc(oldTitle)}${env ? `&env=${enc(env)}` : ""}`,
+      {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      },
+    ).then((r) => json<{ project: ProjectView; test: TestSourceView }>(r)),
+
   genCommand: (name: string, feature?: string) =>
     fetch(`/api/projects/${enc(name)}/gen-command?feature=${enc(feature ?? "")}`).then((r) =>
       json<{ command: string }>(r),
@@ -165,6 +187,14 @@ export const api = {
       `/api/projects/${enc(name)}/screencasts?limit=${limit}${env ? `&env=${enc(env)}` : ""}`,
     ).then((r) => json<ScreencastView[]>(r)),
 
+  deleteScreencastVideos: (name: string, runId: number, testId?: string) => {
+    const qs = new URLSearchParams({ runId: String(runId) });
+    if (testId) qs.set("testId", testId);
+    return fetch(`/api/projects/${enc(name)}/screencasts?${qs}`, { method: "DELETE" }).then((r) =>
+      json<{ freedBytes: number; deletedVideos: number }>(r),
+    );
+  },
+
   // run artifacts (videos / traces on disk)
   artifactStats: (name: string) =>
     fetch(`/api/projects/${enc(name)}/artifacts`).then((r) => json<ArtifactStatsView>(r)),
@@ -193,12 +223,14 @@ export function streamRun(
   feature: string | undefined,
   env: string | undefined,
   videoTestIds: string[],
+  testTitles: string[],
   onEvent: (e: RunEvent) => void,
 ): () => void {
   const qs = new URLSearchParams();
   if (feature) qs.set("feature", feature);
   if (env) qs.set("env", env);
   for (const id of videoTestIds) qs.append("videoTest", id);
+  for (const title of testTitles) qs.append("testTitle", title);
   const suffix = qs.toString() ? `?${qs}` : "";
   const es = new EventSource(`/api/projects/${enc(name)}/run${suffix}`);
   const handle = (ev: MessageEvent) => {

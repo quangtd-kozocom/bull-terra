@@ -12,10 +12,17 @@ import {
   migrateAuthStateFiles,
   normalizeStartPath,
 } from "../core/auth.js";
-import { cleanProjectArtifacts, deleteRunArtifacts, deleteRunHistory, projectArtifactStats } from "../core/artifacts.js";
+import {
+  cleanProjectArtifacts,
+  deleteRunArtifacts,
+  deleteRunHistory,
+  deleteRunVideos,
+  deleteTestVideo,
+  projectArtifactStats,
+} from "../core/artifacts.js";
 import { Db } from "../core/db.js";
 import { discoverFeatures } from "../core/discover.js";
-import { appendManualTest, removeTestFromSpec } from "../core/manual-tests.js";
+import { appendManualTest, readTestFromSpec, removeTestFromSpec, updateTestInSpec } from "../core/manual-tests.js";
 import {
   envAuthStatePath,
   featureRecordingPath,
@@ -350,6 +357,40 @@ export function createApp(opts: ServerOptions): Hono {
     return c.json(buildProjectView(db, paths, p, c.req.query("env")));
   });
 
+  app.get("/api/projects/:name/features/:feature/tests", (c) => {
+    const p = getProjectOr404(c.req.param("name"));
+    if (!p) return c.json({ error: "not found" }, 404);
+    const title = c.req.query("title");
+    if (!title) return c.json({ error: "title is required" }, 400);
+    const feature = c.req.param("feature");
+    const specPath = join(projectSpecsDir(paths, p.name), `${feature}.spec.ts`);
+    const test = readTestFromSpec(specPath, title);
+    if (!test) return c.json({ error: "test not found" }, 404);
+    return c.json({ feature, specPath, ...test });
+  });
+
+  app.put("/api/projects/:name/features/:feature/tests", async (c) => {
+    const p = getProjectOr404(c.req.param("name"));
+    if (!p) return c.json({ error: "not found" }, 404);
+    const oldTitle = c.req.query("title");
+    if (!oldTitle) return c.json({ error: "title is required" }, 400);
+    const body = await c.req.json<{ title?: string; source?: string }>().catch(() => null);
+    if (typeof body?.title !== "string" || typeof body?.source !== "string")
+      return c.json({ error: "title and source are required" }, 400);
+    const feature = c.req.param("feature");
+    const specPath = join(projectSpecsDir(paths, p.name), `${feature}.spec.ts`);
+    try {
+      const test = updateTestInSpec(specPath, oldTitle, { title: body.title, source: body.source });
+      if (!test) return c.json({ error: "test not found" }, 404);
+      return c.json({
+        project: buildProjectView(db, paths, p, c.req.query("env")),
+        test: { feature, specPath, ...test },
+      });
+    } catch (e) {
+      return c.json({ error: (e as Error).message }, 400);
+    }
+  });
+
   // Disk usage of run artifacts (videos/traces), per run + total.
   app.get("/api/projects/:name/artifacts", (c) => {
     const p = getProjectOr404(c.req.param("name"));
@@ -416,6 +457,17 @@ export function createApp(opts: ServerOptions): Hono {
     if (!env) return c.json({ error: "environment not found" }, 404);
     const limit = Math.min(Number(c.req.query("limit")) || 100, 500);
     return c.json(db.listScreencasts(p.id, env.id, limit));
+  });
+
+  app.delete("/api/projects/:name/screencasts", (c) => {
+    const p = getProjectOr404(c.req.param("name"));
+    if (!p) return c.json({ error: "not found" }, 404);
+    const runId = Number(c.req.query("runId"));
+    if (!Number.isInteger(runId)) return c.json({ error: "runId is required" }, 400);
+    const run = db.getRun(runId);
+    if (!run || run.project_id !== p.id) return c.json({ error: "run not found" }, 404);
+    const testId = c.req.query("testId");
+    return c.json(testId ? deleteTestVideo(db, paths, run.id, testId) : deleteRunVideos(db, paths, run.id));
   });
 
   app.get("/api/projects/:name/runs/:runId", (c) => {
@@ -538,6 +590,7 @@ export function createApp(opts: ServerOptions): Hono {
 
     // Per-test "record video" selection (repeated ?videoTest=<testId>).
     const videoTestIds = c.req.queries("videoTest") ?? [];
+    const testTitles = c.req.queries("testTitle");
 
     return streamSSE(c, async (stream) => {
       const send = (e: RunEvent) =>
@@ -546,7 +599,16 @@ export function createApp(opts: ServerOptions): Hono {
       stream.onAbort(() => {
         runs.stop();
       });
-      await runs.run(db, paths, p, env, features.length ? features : undefined, send, videoTestIds);
+      await runs.run(
+        db,
+        paths,
+        p,
+        env,
+        features.length ? features : undefined,
+        testTitles?.length ? testTitles : undefined,
+        send,
+        videoTestIds,
+      );
     });
   });
 

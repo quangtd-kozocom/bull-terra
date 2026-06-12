@@ -27,6 +27,7 @@ export class RunManager {
     project: Project,
     env: Environment,
     features: string[] | undefined,
+    testTitles: string[] | undefined,
     onEvent: (e: RunEvent) => void,
     videoTestIds: string[] = [],
   ): Promise<void> {
@@ -47,6 +48,7 @@ export class RunManager {
         paths,
         specsDir: projectSpecsDir(paths, project.name),
         features,
+        testTitles,
         signal: controller.signal,
         onEvent,
         videoTestIds,

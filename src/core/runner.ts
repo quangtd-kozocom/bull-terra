@@ -11,6 +11,8 @@ export interface RunOptions {
   specsDir: string;
   /** Feature names (relative spec paths minus .spec.ts) to run, or undefined for all. */
   features?: string[];
+  /** Exact Playwright test titles to run inside the selected feature/spec set. */
+  testTitles?: string[];
   /** Per-event callback for live SSE streaming. */
   onEvent?: (e: RunnerEvent) => void;
   signal?: AbortSignal;
@@ -50,7 +52,7 @@ function symbolToStatus(sym: string): TestStatus {
  * parsed per-test results from the JSON reporter.
  */
 export function runSpecs(opts: RunOptions): Promise<RunOutcome> {
-  const { projectRoot, specsDir, features, onEvent, signal, extraEnv, outputDir, video, videoTestIds } =
+  const { projectRoot, specsDir, features, testTitles, onEvent, signal, extraEnv, outputDir, video, videoTestIds } =
     opts;
   // A non-empty selection records every test's video, then prunes all but these.
   const keepVideoFor = videoTestIds && videoTestIds.length ? new Set(videoTestIds) : null;
@@ -64,6 +66,9 @@ export function runSpecs(opts: RunOptions): Promise<RunOutcome> {
   if (features && features.length > 0) {
     // Map each feature to its spec file; Playwright treats positional args as path filters.
     for (const f of features) args.push(join(specsDir, `${f}.spec.ts`));
+  }
+  if (testTitles && testTitles.length > 0) {
+    args.push(`--grep=${testTitles.map((title) => `^${escapeRegExp(title)}$`).join("|")}`);
   }
 
   return new Promise<RunOutcome>((resolvePromise) => {
@@ -131,6 +136,10 @@ export function runSpecs(opts: RunOptions): Promise<RunOutcome> {
       resolvePromise({ results, exitCode: code ?? 1, aborted });
     });
   });
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 interface PwAttachment {

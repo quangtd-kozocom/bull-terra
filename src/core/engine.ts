@@ -20,6 +20,7 @@ export interface ExecuteOptions {
   paths: ProjectPaths;
   specsDir: string;
   features?: string[];
+  testTitles?: string[];
   onEvent?: (e: RunEvent) => void;
   signal?: AbortSignal;
   /** Record a video of every test so the run can be handed to testers (CLI --video). */
@@ -64,7 +65,7 @@ export function buildRunEnv(
  * promote baselines, finish the run. Shared by the CLI gate and the dashboard.
  */
 export async function executeRun(opts: ExecuteOptions): Promise<ExecuteResult> {
-  const { db, project, env, paths, specsDir, features, onEvent, signal, video, videoTestIds } = opts;
+  const { db, project, env, paths, specsDir, features, testTitles, onEvent, signal, video, videoTestIds } = opts;
   const featureLabel = features && features.length === 1 ? features[0] : null;
   const run = db.startRun(project.id, env.id, featureLabel);
   onEvent?.({ type: "run-start", runId: run.id, feature: featureLabel, env: env.name });
@@ -73,6 +74,7 @@ export async function executeRun(opts: ExecuteOptions): Promise<ExecuteResult> {
     projectRoot: paths.root,
     specsDir,
     features,
+    testTitles,
     signal,
     extraEnv: buildRunEnv(paths, project, env),
     // Artifacts (videos, traces) live with the project's assets, grouped per run

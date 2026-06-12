@@ -1,6 +1,6 @@
 import { executeRun } from "../../core/engine.js";
-import { discoverFeatures } from "../../core/discover.js";
-import { authRequirementError } from "../../core/auth.js";
+import { discoverFeatures, discoverTests } from "../../core/discover.js";
+import { authRequirementError, authStateInfo } from "../../core/auth.js";
 import { projectSpecsDir, runArtifactsDir } from "../../core/paths.js";
 import { buildWriteback, writeWritebackFile } from "../../core/writeback.js";
 import {
@@ -53,11 +53,22 @@ export async function runCommand(flags: RunFlags): Promise<void> {
       if (authError) throw new CliError(authError);
     }
 
-    console.log(
-      `${c.bold("bull-terra")} running ${c.cyan(`${project.name}/${env.name}`)} ` +
-        `${c.dim(`(${env.url})`)} ` +
-        `${c.dim(features ? features.join(", ") : "(all features)")}`,
+    const targetFeatures = features ?? discoverFeatures(specsDir);
+    const targetTests = discoverTests(specsDir).filter(
+      (test) => !targetFeatures.length || targetFeatures.includes(test.feature),
     );
+    const auth = authStateInfo(paths, project, env);
+
+    console.log(`${c.bold("bull-terra")} pre-run`);
+    console.log(`  env:     ${env.name} ${c.dim(`(${env.url})`)}`);
+    console.log(
+      `  auth:    ${auth.relPath} ${auth.exists ? c.green("✓") : c.yellow("missing / not needed for public features")}`,
+    );
+    console.log(
+      `  specs:   ${targetFeatures.length || "all"} feature${targetFeatures.length === 1 ? "" : "s"}, ${targetTests.length} tests`,
+    );
+    console.log(`  video:   ${flags.video ? "on" : "retain-on-failure"}`);
+    console.log("");
 
     const { run, results, verdict } = await executeRun({
       db,

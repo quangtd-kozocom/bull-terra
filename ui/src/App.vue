@@ -5,6 +5,7 @@ import { useClipboard, useLocalStorage } from "@vueuse/core";
 import Button from "primevue/button";
 import ConfirmDialog from "primevue/confirmdialog";
 import Drawer from "primevue/drawer";
+import InputText from "primevue/inputtext";
 import Select from "primevue/select";
 import Toast from "primevue/toast";
 import { useConfirm } from "primevue/useconfirm";
@@ -19,6 +20,7 @@ import type {
   NewEnvironment,
   RecordingSourceView,
   RecordingView,
+  TestSourceView,
 } from "./types";
 import { useRun } from "./composables/useRun";
 import { useProjectsStore } from "./stores/projects";
@@ -34,11 +36,12 @@ import FeatureDialog from "./components/FeatureDialog.vue";
 import RecordingPreviewDialog from "./components/RecordingPreviewDialog.vue";
 import AuthStateDialog from "./components/AuthStateDialog.vue";
 import PromoteTestDialog from "./components/PromoteTestDialog.vue";
+import TestCaseDialog from "./components/TestCaseDialog.vue";
 
 const projectsStore = useProjectsStore();
 const { projects, selectedName, activeEnv, activeTab, saving, selected, hasEnv, gauges } =
   storeToRefs(projectsStore);
-const { state: run, start, stop } = useRun();
+const { state: run, start, stop, reset } = useRun();
 const { copy } = useClipboard();
 const confirm = useConfirm();
 const toast = useToast();
@@ -67,6 +70,11 @@ const capturingAuth = shallowRef<string | null>(null);
 const promoteVisible = shallowRef(false);
 const promoting = shallowRef(false);
 const promoteTarget = shallowRef<RecordingView | null>(null);
+const testCaseVisible = shallowRef(false);
+const testCaseLoading = shallowRef(false);
+const testCaseSaving = shallowRef(false);
+const testCase = shallowRef<TestSourceView | null>(null);
+const featureFilter = shallowRef("");
 
 /** The active run-target env — anchor the Environments tab compares against. */
 const currentEnv = computed(
@@ -84,6 +92,21 @@ const consoleDot = computed(() => {
   if (run.finishedStatus) return "var(--color-fail)";
   return "var(--color-ink-3)";
 });
+const filteredFeatures = computed(() => {
+  const query = featureFilter.value.trim().toLowerCase();
+  if (!query) return selected.value?.features ?? [];
+  return (selected.value?.features ?? []).filter((feature) => {
+    const haystack = [
+      feature.feature,
+      feature.sheetId ?? "",
+      feature.startPath,
+      ...feature.tests.map((test) => `${test.tcId ?? ""} ${test.title}`),
+    ]
+      .join(" ")
+      .toLowerCase();
+    return haystack.includes(query);
+  });
+});
 
 onMounted(() => {
   projectsStore.loadProjects().catch(showError);
@@ -94,6 +117,14 @@ watch(
   () => run.running,
   (running) => {
     if (running) consoleOpen.value = true;
+  },
+);
+
+watch(
+  () => selectedName.value,
+  (name) => {
+    if (run.projectName !== name) reset(name);
+    featureFilter.value = "";
   },
 );
 
@@ -305,7 +336,7 @@ function confirmDeleteRecordings(recordings: RecordingView[]) {
 
 // ---- runs / recordings ---------------------------------------------------
 
-function runFeature(feature: string | undefined) {
+function runFeature(feature: string | undefined, onlyTitle?: string) {
   if (!selected.value || run.running) return;
   if (!hasEnv.value) {
     showWarn("Add an environment first", "Runs need a target environment.");
@@ -314,7 +345,8 @@ function runFeature(feature: string | undefined) {
   }
   const runTests = selected.value.features
     .filter((item) => !feature || item.feature === feature)
-    .flatMap((item) => item.tests);
+    .flatMap((item) => item.tests)
+    .filter((test) => !onlyTitle || test.title === onlyTitle);
   const titles = runTests.map((test) => test.title);
   // Only forward video selections for tests actually in this run.
   const selectedVideo = new Set(videoTestIds.value);
@@ -326,6 +358,7 @@ function runFeature(feature: string | undefined) {
     titles,
     projectsStore.refreshSelected,
     runVideoIds,
+    onlyTitle ? [onlyTitle] : [],
   );
 }
 
@@ -335,6 +368,51 @@ function toggleVideo(testId: string) {
   if (next.has(testId)) next.delete(testId);
   else next.add(testId);
   videoTestIds.value = [...next];
+}
+
+function setFeatureVideo(feature: FeatureView, on: boolean) {
+  const next = new Set(videoTestIds.value);
+  for (const test of feature.tests) {
+    if (on) next.add(test.testId);
+    else next.delete(test.testId);
+  }
+  videoTestIds.value = [...next];
+}
+
+async function viewTestCase(feature: string, title: string) {
+  if (!selected.value) return;
+  testCaseVisible.value = true;
+  testCaseLoading.value = true;
+  testCase.value = null;
+  try {
+    testCase.value = await api.getTest(selected.value.name, feature, title);
+  } catch (error) {
+    testCaseVisible.value = false;
+    showError(error);
+  } finally {
+    testCaseLoading.value = false;
+  }
+}
+
+async function saveTestCase(oldTitle: string, title: string, source: string) {
+  if (!selected.value || !testCase.value || testCaseSaving.value) return;
+  testCaseSaving.value = true;
+  try {
+    const result = await api.saveTest(
+      selected.value.name,
+      testCase.value.feature,
+      oldTitle,
+      { title, source },
+      activeEnv.value ?? undefined,
+    );
+    projectsStore.replaceProject(result.project);
+    testCase.value = result.test;
+    showSuccess("Test case saved", title);
+  } catch (error) {
+    showError(error);
+  } finally {
+    testCaseSaving.value = false;
+  }
 }
 
 async function stopRun() {
@@ -544,6 +622,12 @@ async function showTrace(path: string) {
           <div class="mb-3 mt-6 flex items-center justify-between">
             <span class="label text-ink-3">features</span>
             <div class="flex items-center gap-2">
+              <InputText
+                v-model="featureFilter"
+                size="small"
+                class="w-64 max-w-[38vw] font-mono text-xs"
+                placeholder="filter feature / test"
+              />
               <Button
                 label="Add feature"
                 icon="pi pi-plus"
@@ -564,7 +648,7 @@ async function showTrace(path: string) {
 
           <div class="space-y-3">
             <FeatureCard
-              v-for="feature in selected.features"
+              v-for="feature in filteredFeatures"
               :key="feature.feature"
               :feature="feature"
               :live-status="run.liveStatus"
@@ -572,6 +656,7 @@ async function showTrace(path: string) {
               :active-title="run.active"
               :video-test-ids="videoTestIds"
               @run="(name) => runFeature(name)"
+              @run-test="(name, title) => runFeature(name, title)"
               @gen="copyGen"
               @record="(name, recName) => recordFeature(name, recName)"
               @view-recording="viewRecording"
@@ -583,7 +668,9 @@ async function showTrace(path: string) {
               @trace="showTrace"
               @delete-test="confirmDeleteTest"
               @delete-tests="confirmDeleteTests"
+              @view-test="viewTestCase"
               @toggle-video="toggleVideo"
+              @set-feature-video="setFeatureVideo"
             />
 
             <div
@@ -601,6 +688,15 @@ async function showTrace(path: string) {
                 size="small"
                 @click="openCreateFeature"
               />
+            </div>
+            <div
+              v-else-if="!filteredFeatures.length"
+              class="rounded-md border border-dashed border-line-strong px-6 py-10 text-center"
+            >
+              <p class="font-display text-lg font-bold text-ink">No matching features</p>
+              <p class="mx-auto mt-2 max-w-md text-sm text-ink-2">
+                Clear the filter to show every feature.
+              </p>
             </div>
           </div>
         </div>
@@ -746,6 +842,13 @@ async function showTrace(path: string) {
       :recording="promoteTarget"
       :saving="promoting"
       @submit="submitPromote"
+    />
+    <TestCaseDialog
+      v-model:visible="testCaseVisible"
+      :test-case="testCase"
+      :loading="testCaseLoading"
+      :saving="testCaseSaving"
+      @save="saveTestCase"
     />
     <ConfirmDialog />
     <Toast position="bottom-center" />

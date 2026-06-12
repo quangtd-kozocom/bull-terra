@@ -49,6 +49,13 @@ export interface RecordingSourceView extends RecordingView {
   source: string;
 }
 
+export interface TestSourceView {
+  feature: string;
+  specPath: string;
+  title: string;
+  source: string;
+}
+
 export interface AuthStateView {
   env: string;
   path: string;

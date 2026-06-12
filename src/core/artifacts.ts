@@ -88,6 +88,48 @@ export function deleteRunArtifacts(db: Db, paths: ProjectPaths, project: Project
   return freed;
 }
 
+export interface DeletedVideos {
+  freedBytes: number;
+  deletedVideos: number;
+}
+
+export function deleteRunVideos(db: Db, paths: ProjectPaths, runId: number): DeletedVideos {
+  const relPaths = db
+    .listResults(runId)
+    .map((result) => result.video_path)
+    .filter((path): path is string => !!path);
+  return deleteVideoPaths(db, paths, relPaths);
+}
+
+export function deleteTestVideo(
+  db: Db,
+  paths: ProjectPaths,
+  runId: number,
+  testId: string,
+): DeletedVideos {
+  const result = db.listResults(runId).find((item) => item.test_id === testId);
+  return deleteVideoPaths(db, paths, result?.video_path ? [result.video_path] : []);
+}
+
+function deleteVideoPaths(db: Db, paths: ProjectPaths, relPaths: string[]): DeletedVideos {
+  let freedBytes = 0;
+  let deletedVideos = 0;
+  const deletedRels: string[] = [];
+  const seen = new Set<string>();
+  for (const rel of relPaths) {
+    if (seen.has(rel)) continue;
+    seen.add(rel);
+    const abs = resolve(paths.root, rel);
+    if (!isArtifactFile(paths, abs) || !existsSync(abs)) continue;
+    freedBytes += statSync(abs).size;
+    unlinkSync(abs);
+    deletedVideos++;
+    deletedRels.push(rel);
+  }
+  db.clearArtifactPathRefs(deletedRels);
+  return { freedBytes, deletedVideos };
+}
+
 /**
  * Erase runs from history entirely: artifacts on disk, then the run rows and
  * their results. Unlike deleteRunArtifacts, nothing of the run survives —

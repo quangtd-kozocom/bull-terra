@@ -6,7 +6,9 @@ import {
   appendManualTest,
   extractCodegenBody,
   normalizeTcId,
+  readTestFromSpec,
   removeTestFromSpec,
+  updateTestInSpec,
 } from "../src/core/manual-tests.js";
 
 const RECORDING = `import { test, expect } from "@playwright/test";
@@ -155,5 +157,48 @@ test("TC-02: second", async ({ page }) => {
 
   it("returns false when the spec file does not exist", () => {
     expect(removeTestFromSpec(specPath, "TC-01: first")).toBe(false);
+  });
+});
+
+describe("readTestFromSpec/updateTestInSpec", () => {
+  let dir: string;
+  let specPath: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "bt-edit-"));
+    specPath = join(dir, "checkout.spec.ts");
+  });
+
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  it("reads and replaces a single test block, updating the title in source", () => {
+    writeFileSync(
+      specPath,
+      `import { test, expect } from "@playwright/test";
+
+test("TC-01: first", async ({ page }) => {
+  await page.goto("/");
+});
+
+test("TC-02: second", async ({ page }) => {
+  await page.goto("/two");
+});
+`,
+    );
+
+    const current = readTestFromSpec(specPath, "TC-01: first");
+    expect(current?.source).toContain('await page.goto("/")');
+
+    const updated = updateTestInSpec(specPath, "TC-01: first", {
+      title: "TC-01: first edited",
+      source: current!.source.replace('await page.goto("/")', 'await page.goto("/edited")'),
+    });
+
+    expect(updated?.source).toContain('test("TC-01: first edited"');
+    expect(updated?.source).toContain('await page.goto("/edited")');
+    const out = readFileSync(specPath, "utf8");
+    expect(out).toContain('test("TC-01: first edited"');
+    expect(out).toContain('test("TC-02: second"');
+    expect(out).not.toMatch(/\n{3,}/);
   });
 });

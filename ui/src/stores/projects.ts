@@ -7,7 +7,10 @@ import type { EnvironmentInput, FeatureInput, NewEnvironment, ProjectView } from
 export const useProjectsStore = defineStore("projects", () => {
   const projects = shallowRef<ProjectView[]>([]);
   const selectedName = useLocalStorage<string | null>("bull-terra:selected-project", null);
-  const activeEnv = useLocalStorage<string | null>("bull-terra:active-env", null);
+  const activeEnvByProject = useLocalStorage<Record<string, string | null>>(
+    "bull-terra:active-env-by-project",
+    {},
+  );
   const activeTab = useLocalStorage<"run" | "history" | "screencasts" | "environments">(
     "bull-terra:active-tab",
     "run",
@@ -17,6 +20,9 @@ export const useProjectsStore = defineStore("projects", () => {
 
   const selected = computed(
     () => projects.value.find((project) => project.name === selectedName.value) ?? null,
+  );
+  const activeEnv = computed(() =>
+    selectedName.value ? (activeEnvByProject.value[selectedName.value] ?? null) : null,
   );
   const hasEnv = computed(() => !!selected.value?.environments.length);
   const gauges = computed(() => {
@@ -32,12 +38,12 @@ export const useProjectsStore = defineStore("projects", () => {
 
   function syncActiveEnv(project = selected.value) {
     if (!project) {
-      activeEnv.value = null;
       return;
     }
 
-    if (!activeEnv.value || !project.environments.some((env) => env.name === activeEnv.value)) {
-      activeEnv.value = project.activeEnv;
+    const current = activeEnvByProject.value[project.name];
+    if (!current || !project.environments.some((env) => env.name === current)) {
+      activeEnvByProject.value = { ...activeEnvByProject.value, [project.name]: project.activeEnv };
     }
   }
 
@@ -64,7 +70,7 @@ export const useProjectsStore = defineStore("projects", () => {
           .sort((a, b) => a.name.localeCompare(b.name))
       : [...projects.value, fresh].sort((a, b) => a.name.localeCompare(b.name));
     selectedName.value = fresh.name;
-    activeEnv.value = fresh.activeEnv;
+    activeEnvByProject.value = { ...activeEnvByProject.value, [fresh.name]: fresh.activeEnv };
   }
 
   async function loadProjects(keepSelection = true) {
@@ -94,7 +100,8 @@ export const useProjectsStore = defineStore("projects", () => {
   }
 
   async function selectEnv(env: string) {
-    activeEnv.value = env;
+    if (selectedName.value)
+      activeEnvByProject.value = { ...activeEnvByProject.value, [selectedName.value]: env };
     await refreshSelected();
   }
 
@@ -299,6 +306,7 @@ export const useProjectsStore = defineStore("projects", () => {
     selected,
     hasEnv,
     gauges,
+    replaceProject,
     loadProjects,
     refreshSelected,
     selectProject,

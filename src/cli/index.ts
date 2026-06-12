@@ -13,6 +13,7 @@ import { featureAdd, featureInspect, featureList, featureRemove } from "./comman
 import { cleanCommand } from "./commands/clean.js";
 import { historyCommand } from "./commands/history.js";
 import { installBrowsersCommand } from "./commands/installBrowsers.js";
+import { doctorCommand } from "./commands/doctor.js";
 
 // Load bull-terra's state-home .env so login secrets reach Playwright (PRD §14).
 loadEnv({ path: join(bullTerraHome(), ".env"), quiet: true });
@@ -86,6 +87,13 @@ program
   .description("Install the Chromium build Playwright codegen/runs need")
   .option("--force", "reinstall even if Chromium appears installed")
   .action((flags) => installBrowsersCommand(flags));
+
+program
+  .command("doctor")
+  .description("Check local bull-terra setup and print fixes for common run failures")
+  .option("--project <name>", "project to check (defaults to the only registered project)")
+  .option("--env <name>", "environment to check (defaults to the project's default env)")
+  .action(async (flags) => doctorCommand(flags));
 
 const project = program.command("project").description("Manage registered projects");
 project

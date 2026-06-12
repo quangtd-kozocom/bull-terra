@@ -6,6 +6,7 @@ export interface RunState {
   running: boolean;
   feature: string | undefined;
   runId: number | null;
+  projectName: string | null;
   /** live status keyed by test title */
   liveStatus: Record<string, string>;
   /** the title currently executing (for the pulse indicator) */
@@ -21,6 +22,7 @@ export function useRun() {
     running: false,
     feature: undefined,
     runId: null,
+    projectName: null,
     liveStatus: {},
     active: null,
     log: [],
@@ -36,9 +38,11 @@ export function useRun() {
     knownTitles: string[],
     onEnd?: () => void,
     videoTestIds: string[] = [],
+    testTitles: string[] = [],
   ) {
     if (state.running) return;
     state.running = true;
+    state.projectName = projectName;
     state.feature = feature;
     state.runId = null;
     state.liveStatus = Object.fromEntries(knownTitles.map((t) => [t, "queued"]));
@@ -47,7 +51,7 @@ export function useRun() {
     state.verdict = null;
     state.finishedStatus = null;
 
-    state.dispose = streamRun(projectName, feature, env, videoTestIds, (e: RunEvent) =>
+    state.dispose = streamRun(projectName, feature, env, videoTestIds, testTitles, (e: RunEvent) =>
       handle(e, onEnd),
     );
   }
@@ -85,5 +89,18 @@ export function useRun() {
     state.running = false;
   }
 
-  return { state, start, stop };
+  function reset(projectName?: string | null) {
+    if (state.running) return;
+    state.projectName = projectName ?? null;
+    state.feature = undefined;
+    state.runId = null;
+    state.liveStatus = {};
+    state.active = null;
+    state.log = [];
+    state.verdict = null;
+    state.finishedStatus = null;
+    state.dispose = null;
+  }
+
+  return { state, start, stop, reset };
 }

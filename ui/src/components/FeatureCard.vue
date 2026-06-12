@@ -21,6 +21,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: "run", feature: string): void;
+  (e: "runTest", feature: string, title: string): void;
   (e: "gen", feature: string): void;
   (e: "record", feature: string, name: string): void;
   (e: "viewRecording", recordingId: number): void;
@@ -32,11 +33,17 @@ const emit = defineEmits<{
   (e: "trace", path: string): void;
   (e: "deleteTest", feature: string, title: string): void;
   (e: "deleteTests", feature: string, titles: string[]): void;
+  (e: "viewTest", feature: string, title: string): void;
   (e: "toggleVideo", testId: string): void;
+  (e: "setFeatureVideo", feature: FeatureView, on: boolean): void;
 }>();
 
 /** True when this test is marked for video recording on the next run. */
 const recordsVideo = (testId: string) => props.videoTestIds.includes(testId);
+const featureVideoAllSelected = computed({
+  get: () => props.feature.tests.length > 0 && props.feature.tests.every((t) => recordsVideo(t.testId)),
+  set: (on: boolean) => emit("setFeatureVideo", props.feature, on),
+});
 
 /** Google Sheets deep-link for the linked sheet, if any. */
 const sheetUrl = computed(() =>
@@ -260,6 +267,16 @@ function recordNamed() {
           </button>
           <span class="label text-ink-3">test cases</span>
           <span class="tnum font-mono text-[11px] text-ink-3">{{ feature.tests.length }}</span>
+          <label
+            v-if="feature.tests.length"
+            class="ml-2 flex cursor-pointer items-center gap-1.5 font-mono text-[11px]"
+            :class="featureVideoAllSelected ? 'text-accent' : 'text-ink-3 hover:text-accent'"
+            v-tooltip.top="'Record video for every test case in this feature on the next run'"
+          >
+            <Checkbox v-model="featureVideoAllSelected" binary aria-label="Record all videos" />
+            <i class="pi pi-video text-[11px]" />
+            all
+          </label>
           <Checkbox
             v-if="feature.tests.length"
             v-model="testsAllSelected"
@@ -367,6 +384,26 @@ function recordNamed() {
             >
               video ↗
             </a>
+
+            <button
+              class="shrink-0 rounded-sm border border-line px-2 py-1 font-mono text-[11px] text-ink-2 transition hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-40"
+              :disabled="running"
+              :aria-label="`Run ${t.title}`"
+              @click="emit('runTest', feature.feature, t.title)"
+            >
+              run
+            </button>
+
+            <Button
+              icon="pi pi-pencil"
+              text
+              rounded
+              size="small"
+              severity="secondary"
+              :aria-label="`Edit ${t.title}`"
+              v-tooltip.top="'View / edit code'"
+              @click="emit('viewTest', feature.feature, t.title)"
+            />
 
             <label
               class="flex shrink-0 cursor-pointer items-center gap-1 font-mono text-[11px] transition"

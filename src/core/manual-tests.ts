@@ -60,6 +60,44 @@ export function appendManualTest(
 // Matches test('...'), test("..."), test(`...`), incl. test.only / test.skip / test.fixme.
 const TEST_CALL_RE = /\btest(?:\.(?:only|skip|fixme))?\s*\(\s*(['"`])((?:\\.|(?!\1).)*)\1/g;
 
+export interface SpecTestSource {
+  title: string;
+  source: string;
+}
+
+export function readTestFromSpec(specPath: string, title: string): SpecTestSource | null {
+  if (!existsSync(specPath)) return null;
+  const source = readFileSync(specPath, "utf8");
+  const span = findTestSpan(source, title);
+  if (!span) return null;
+  return {
+    title,
+    source: source.slice(span.start, span.end).trim(),
+  };
+}
+
+export function updateTestInSpec(
+  specPath: string,
+  oldTitle: string,
+  next: SpecTestSource,
+): SpecTestSource | null {
+  if (!existsSync(specPath)) return null;
+  const source = readFileSync(specPath, "utf8");
+  const span = findTestSpan(source, oldTitle);
+  if (!span) return null;
+  const title = next.title.trim();
+  if (!title) throw new Error("test title is required");
+  const block = replaceFirstTestTitle(next.source.trim(), title);
+  const before = source.slice(0, span.start).replace(/[ \t]*$/, "");
+  const after = source.slice(span.end);
+  const updated = `${before}${before.endsWith("\n") || !before ? "" : "\n"}${block}\n${after.replace(/^\n*/, "\n")}`.replace(
+    /\n{3,}/g,
+    "\n\n",
+  );
+  writeFileSync(specPath, updated);
+  return { title, source: block };
+}
+
 /**
  * Remove a single `test(...)` block from a spec file, matched by its title (the
  * same trimmed title surfaced by discovery). Returns true if a block was removed.
@@ -90,6 +128,17 @@ function findTestSpan(source: string, wantTitle: string): { start: number; end: 
     return { start, end };
   }
   return null;
+}
+
+function replaceFirstTestTitle(source: string, title: string): string {
+  TEST_CALL_RE.lastIndex = 0;
+  const match = TEST_CALL_RE.exec(source);
+  TEST_CALL_RE.lastIndex = 0;
+  if (!match || match.index == null) throw new Error("source must contain a test(...) block");
+  const quoteStart = match.index + match[0].indexOf(match[1]);
+  const titleStart = quoteStart + 1;
+  const titleEnd = titleStart + match[2].length;
+  return `${source.slice(0, quoteStart)}${JSON.stringify(title)}${source.slice(titleEnd + 1)}`;
 }
 
 /** From the opening `(` of a call, return the index just past the matching `)` and an optional `;`. */
