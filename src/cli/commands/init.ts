@@ -30,7 +30,6 @@ function ensureGitignore(root: string): void {
     "recordings/",
     "test-results/",
     "playwright-report/",
-    ".bull-terra/",
   ];
   const existing = existsSync(file) ? readFileSync(file, "utf8") : "";
   const missing = needed.filter((line) => !existing.split(/\r?\n/).includes(line));
@@ -39,9 +38,9 @@ function ensureGitignore(root: string): void {
 }
 
 /**
- * `bull-terra init` (PRD §10): install Chromium, create data.db, write
- * .env.example + config templates, print setup pointers. The /gen-tests skill
- * is published separately and installed via skills.sh (see README).
+ * `bull-terra init` (PRD §10): install Chromium, create ~/.bull-terra/data.db,
+ * write .env.example + config templates, print setup pointers. The /gen-tests
+ * skill is published separately and installed into .claude/skills (see README).
  */
 export function initCommand(flags: InitFlags): void {
   const paths = resolvePaths();
@@ -50,10 +49,10 @@ export function initCommand(flags: InitFlags): void {
   const skip = (s: string) => console.log(`  ${c.dim("•")} ${c.dim(s)}`);
 
   // Database
-  if (existsSync(paths.dbPath)) skip("data.db already exists");
+  if (existsSync(paths.dbPath)) skip(`${paths.dbPath} already exists`);
   else {
     new Db(paths.dbPath).close();
-    ok("created data.db");
+    ok(`created ${paths.dbPath}`);
   }
 
   // Config + scaffolding templates (never overwrite developer edits).
@@ -97,7 +96,7 @@ function printNextSteps(): void {
   console.log(`
 ${c.bold("Next steps")}
   1. ${c.cyan("Install the /gen-tests skill")} npx skills add quangtd-kozocom/bull-terra
-     ${c.dim("publishes the gen-tests skill into .agents/skills via skills.sh")}
+     ${c.dim("publishes the gen-tests skill from .claude/skills/gen-tests")}
   2. ${c.cyan("Register a project")}      bull-terra project add <name>
   3. ${c.cyan("Add environment(s)")}     bull-terra env add <name> stg <url> --default --user-var APP_STG_USER --pass-var APP_STG_PASS
   4. ${c.cyan("Add feature(s)")}         bull-terra feature add <name> <feature> --sheet <sheetId>

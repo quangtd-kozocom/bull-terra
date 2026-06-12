@@ -15,7 +15,7 @@
   "files": [
     "dist",
     "templates",
-    "skills",
+    ".claude/skills/gen-tests",
     "README.md"
   ],
   "engines": {

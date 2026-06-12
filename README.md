@@ -19,6 +19,11 @@ bull-terra init
 npx skills add quangtd-kozocom/bull-terra
 ```
 
+`bull-terra init` creates the local harness under `~/.bull-terra` by default
+(`BULL_TERRA_HOME` can override it). The CLI and dashboard both use that same
+state home for `data.db`, recordings, generated specs, auth state, and run
+artifacts.
+
 ## Recommended: Use the Dashboard
 
 After install, start the dashboard:
@@ -106,7 +111,7 @@ now fails. New tests that never passed are reported but do not fail the gate.
 | `bull-terra install-browsers [--force]` | Install Chromium for recording/runs. |
 | `bull-terra project add/list/rm` | Manage projects. |
 | `bull-terra env add/list/default/rm` | Manage environments. |
-| `bull-terra feature add/list/rm` | Manage sheet-backed features. |
+| `bull-terra feature add/list/inspect/rm` | Manage sheet-backed features. |
 
 ## Environment Variables
 
@@ -118,7 +123,8 @@ resolved values when tests run.
 | `<user-var>` / `<pass-var>` | Login credentials named by `env add --user-var/--pass-var`. |
 | `BASE_URL` | Injected from the selected environment URL. Do not set manually. |
 | `BULL_TERRA_USER` / `BULL_TERRA_PASS` | Injected login values for `global-setup.ts`. |
-| `BULL_TERRA_STORAGE_STATE` | Injected auth state path: `auth/<project>-<env>.json`. |
+| `BULL_TERRA_HOME` | Optional override for the state home. Defaults to `~/.bull-terra`. |
+| `BULL_TERRA_STORAGE_STATE` | Injected auth state path: `recordings/<project>/.auth/<env>.json`. |
 
 ## Troubleshooting
 

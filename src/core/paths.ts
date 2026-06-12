@@ -1,24 +1,14 @@
-import { existsSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { homedir } from "node:os";
+import { join, resolve } from "node:path";
 
 /**
- * bull-terra runs against the *installed project* — the cwd where a developer
- * invokes `bull-terra`. All state (db, recordings, generated specs, traces)
- * lives under that project root, never inside the npm package.
- *
- * The project root is the nearest ancestor of cwd that contains a marker
- * (`data.db`, `playwright.config.ts`, or `package.json`); falls back to cwd.
+ * bull-terra runtime state lives in one user-level home so the dashboard and
+ * CLI always see the same DB, recordings, generated specs, and run artifacts,
+ * regardless of which directory launched the command.
  */
-export function findProjectRoot(start: string = process.cwd()): string {
-  const markers = ["data.db", "playwright.config.ts", "package.json"];
-  let dir = resolve(start);
-  // eslint-disable-next-line no-constant-condition
-  while (true) {
-    if (markers.some((m) => existsSync(join(dir, m)))) return dir;
-    const parent = dirname(dir);
-    if (parent === dir) return resolve(start);
-    dir = parent;
-  }
+export function bullTerraHome(): string {
+  const override = process.env.BULL_TERRA_HOME?.trim();
+  return resolve(override || join(homedir(), ".bull-terra"));
 }
 
 export interface ProjectPaths {
@@ -34,7 +24,7 @@ export interface ProjectPaths {
   playwrightConfig: string;
 }
 
-export function projectPaths(root: string = findProjectRoot()): ProjectPaths {
+export function projectPaths(root: string = bullTerraHome()): ProjectPaths {
   return {
     root,
     dbPath: join(root, "data.db"),

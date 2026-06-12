@@ -1,7 +1,7 @@
 import { config as loadEnv } from "dotenv";
 import { Command } from "commander";
-import { findProjectRoot } from "../core/paths.js";
 import { join } from "node:path";
+import { bullTerraHome } from "../core/paths.js";
 import { c, CliError } from "./util.js";
 import { initCommand } from "./commands/init.js";
 import { serveCommand } from "./commands/serve.js";
@@ -9,13 +9,13 @@ import { runCommand } from "./commands/run.js";
 import { recordCommand } from "./commands/record.js";
 import { projectAdd, projectList, projectRemove } from "./commands/project.js";
 import { envAdd, envDefault, envList, envRemove } from "./commands/env.js";
-import { featureAdd, featureList, featureRemove } from "./commands/feature.js";
+import { featureAdd, featureInspect, featureList, featureRemove } from "./commands/feature.js";
 import { cleanCommand } from "./commands/clean.js";
 import { historyCommand } from "./commands/history.js";
 import { installBrowsersCommand } from "./commands/installBrowsers.js";
 
-// Load the installed project's .env so login secrets reach Playwright (PRD §14).
-loadEnv({ path: join(findProjectRoot(), ".env"), quiet: true });
+// Load bull-terra's state-home .env so login secrets reach Playwright (PRD §14).
+loadEnv({ path: join(bullTerraHome(), ".env"), quiet: true });
 
 const VERSION = "0.1.0";
 
@@ -31,7 +31,7 @@ program
 
 program
   .command("init")
-  .description("Install Chromium, create data.db + config templates")
+  .description("Install Chromium, create ~/.bull-terra/data.db + config templates")
   .option("--no-browser", "skip installing Chromium")
   .action((flags) => initCommand(flags));
 
@@ -121,6 +121,11 @@ feature
   .option("--no-auth", "mark the feature as public / unauthenticated")
   .action((projectName, name, flags) => featureAdd(projectName, name, flags));
 feature.command("list <project>").description("List a project's features").action((p) => featureList(p));
+feature
+  .command("inspect <project> <name>")
+  .description("Show one feature's sheet, envs, recordings, and generated spec paths")
+  .option("--json", "emit structured JSON for agents and scripts")
+  .action((projectName, name, flags) => featureInspect(projectName, name, flags));
 feature.command("rm <project> <name>").description("Remove a feature").action((p, n) => featureRemove(p, n));
 
 async function main(): Promise<void> {

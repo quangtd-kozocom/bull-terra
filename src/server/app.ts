@@ -1,7 +1,6 @@
 import { serve } from "@hono/node-server";
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
-import { createRequire } from "node:module";
 import { basename, dirname, extname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Hono } from "hono";
@@ -26,7 +25,7 @@ import {
   safePathSegment,
   type ProjectPaths,
 } from "../core/paths.js";
-import { chromiumInstalled, resolvePlaywrightCli } from "../core/playwright.js";
+import { chromiumInstalled, requirePlaywrightTest, resolvePlaywrightCli } from "../core/playwright.js";
 import { normalizeSecretVars } from "../core/secret-vars.js";
 import type { Environment, RunEvent } from "../core/types.js";
 import { RunManager } from "./runManager.js";
@@ -99,8 +98,7 @@ function moveEnvAuthState(paths: ProjectPaths, projectName: string, oldName: str
 }
 
 async function captureAuthState(paths: ProjectPaths, env: Environment, storagePath: string): Promise<void> {
-  const require = createRequire(join(paths.root, "__bull_terra__.js"));
-  const { chromium } = require("@playwright/test") as typeof import("@playwright/test");
+  const { chromium } = requirePlaywrightTest(paths.root);
   mkdirSync(dirname(storagePath), { recursive: true });
   const browser = await chromium.launch({ headless: false });
   const context = await browser.newContext();

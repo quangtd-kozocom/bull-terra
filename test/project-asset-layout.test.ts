@@ -1,11 +1,13 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { featureInspect } from "../src/cli/commands/feature.js";
 import { migrateAuthStateFiles } from "../src/core/auth.js";
 import { Db } from "../src/core/db.js";
 import {
   envAuthStatePath,
+  featureRecordingPath,
   legacyEnvAuthStatePath,
   projectPaths,
   runArtifactsDir,
@@ -26,6 +28,19 @@ describe("per-project asset layout", () => {
   afterEach(() => {
     db.close();
     rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("defaults runtime state to BULL_TERRA_HOME when set", () => {
+    const prev = process.env.BULL_TERRA_HOME;
+    process.env.BULL_TERRA_HOME = dir;
+    try {
+      expect(projectPaths().dbPath).toBe(join(dir, "data.db"));
+      expect(projectPaths().recordingsDir).toBe(join(dir, "recordings"));
+      expect(projectPaths().specsDir).toBe(join(dir, "tests", "gen"));
+    } finally {
+      if (prev === undefined) delete process.env.BULL_TERRA_HOME;
+      else process.env.BULL_TERRA_HOME = prev;
+    }
   });
 
   it("places auth state and run artifacts under recordings/<project>/", () => {
@@ -102,5 +117,60 @@ describe("per-project asset layout", () => {
       expect(() => migrateAuthStateFiles(db, paths)).not.toThrow();
       expect(existsSync(envAuthStatePath(paths, "app", "stg"))).toBe(false);
     });
+  });
+});
+
+describe("feature inspect CLI payload", () => {
+  let dir: string;
+  let prevHome: string | undefined;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "bt-inspect-"));
+    prevHome = process.env.BULL_TERRA_HOME;
+    process.env.BULL_TERRA_HOME = dir;
+  });
+
+  afterEach(() => {
+    if (prevHome === undefined) delete process.env.BULL_TERRA_HOME;
+    else process.env.BULL_TERRA_HOME = prevHome;
+    rmSync(dir, { recursive: true, force: true });
+    vi.restoreAllMocks();
+  });
+
+  it("prints feature, env, recording, and state paths as JSON", () => {
+    const paths = projectPaths();
+    const db = new Db(paths.dbPath);
+    try {
+      const project = db.createProject("app");
+      db.upsertEnvironment(project.id, "stg", "https://stg.example", { isDefault: true });
+      const feature = db.upsertFeature(project.id, "checkout", "sheet-123", {
+        startPath: "/cart",
+        requiresAuth: true,
+      });
+      const basePath = featureRecordingPath(paths, project.name, feature.name, "base");
+      db.addFeatureRecording(project.id, feature.id, "base", basePath);
+    } finally {
+      db.close();
+    }
+
+    const logs: string[] = [];
+    vi.spyOn(console, "log").mockImplementation((value) => logs.push(String(value)));
+
+    featureInspect("app", "checkout", { json: true });
+
+    const payload = JSON.parse(logs[0]) as {
+      stateRoot: string;
+      dbPath: string;
+      feature: { sheetId: string; startPath: string; requiresAuth: boolean };
+      environments: Array<{ name: string; isDefault: boolean }>;
+      recordings: Array<{ name: string; path: string }>;
+      hasBaseRecording: boolean;
+    };
+    expect(payload.stateRoot).toBe(dir);
+    expect(payload.dbPath).toBe(join(dir, "data.db"));
+    expect(payload.feature).toMatchObject({ sheetId: "sheet-123", startPath: "/cart", requiresAuth: true });
+    expect(payload.environments).toEqual([expect.objectContaining({ name: "stg", isDefault: true })]);
+    expect(payload.recordings).toEqual([expect.objectContaining({ name: "base" })]);
+    expect(payload.hasBaseRecording).toBe(true);
   });
 });

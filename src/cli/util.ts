@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { migrateAuthStateFiles } from "../core/auth.js";
 import { Db } from "../core/db.js";
-import { findProjectRoot, projectPaths, type ProjectPaths } from "../core/paths.js";
+import { projectPaths, type ProjectPaths } from "../core/paths.js";
 import type { Environment, GateVerdict, Project } from "../core/types.js";
 
 // ---- tiny ANSI helpers (no dependency) -----------------------------------
@@ -19,7 +19,7 @@ export const c = {
 };
 
 export function resolvePaths(): ProjectPaths {
-  return projectPaths(findProjectRoot());
+  return projectPaths();
 }
 
 export function openDb(paths: ProjectPaths): Db {

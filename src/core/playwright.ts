@@ -2,6 +2,7 @@ import { existsSync, readdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 /**
  * How to invoke the Playwright CLI. We prefer the bundled binary resolved from
@@ -31,24 +32,42 @@ function packageRoot(entry: string): string | null {
   return null;
 }
 
+function requireBases(projectRoot: string): string[] {
+  return [...new Set([projectRoot, process.cwd(), dirname(fileURLToPath(import.meta.url))])];
+}
+
 export function resolvePlaywrightCli(projectRoot: string): PlaywrightCli {
-  const require = createRequire(join(projectRoot, "__bull_terra__.js"));
   // `@playwright/test` is the direct (peer) dep; under pnpm's strict layout the
   // transitive `playwright`/`playwright-core` aren't resolvable from the project
   // root, and `exports` blocks the `/cli.js` subpath — so resolve the package
   // ENTRY and find cli.js at its root instead.
-  for (const pkg of ["@playwright/test", "playwright", "playwright-core"]) {
-    try {
-      const root = packageRoot(require.resolve(pkg));
-      if (!root) continue;
-      const cliPath = join(root, "cli.js");
-      if (existsSync(cliPath)) return { command: process.execPath, prefix: [cliPath], viaNpx: false };
-    } catch {
-      /* try next */
+  for (const base of requireBases(projectRoot)) {
+    const require = createRequire(join(base, "__bull_terra__.js"));
+    for (const pkg of ["@playwright/test", "playwright", "playwright-core"]) {
+      try {
+        const root = packageRoot(require.resolve(pkg));
+        if (!root) continue;
+        const cliPath = join(root, "cli.js");
+        if (existsSync(cliPath)) return { command: process.execPath, prefix: [cliPath], viaNpx: false };
+      } catch {
+        /* try next */
+      }
     }
   }
   // Last resort — works in any project where `npx playwright` resolves.
   return { command: "npx", prefix: ["playwright"], viaNpx: true };
+}
+
+export function requirePlaywrightTest(projectRoot: string): typeof import("@playwright/test") {
+  for (const base of requireBases(projectRoot)) {
+    const require = createRequire(join(base, "__bull_terra__.js"));
+    try {
+      return require("@playwright/test") as typeof import("@playwright/test");
+    } catch {
+      /* try next */
+    }
+  }
+  throw new Error("Could not resolve @playwright/test. Install it in the project where you run bull-terra.");
 }
 
 /** The directory Playwright caches browser binaries in (honoring PLAYWRIGHT_BROWSERS_PATH). */

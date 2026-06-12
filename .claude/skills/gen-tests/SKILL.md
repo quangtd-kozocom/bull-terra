@@ -1,6 +1,6 @@
 ---
 name: gen-tests
-description: Generate Playwright specs for a bull-terra project/feature from Google Sheet test cases, reusing a recorded base flow as the selector source. Use when the user runs "/gen-tests <project> <feature>", asks to generate or regenerate UI tests for a feature, or after recording a base flow. Fixes ONLY selectors/waits/navigation on failure and STOPS on assertion failures — never weakens an assertion.
+description: Generate Playwright specs for a bull-terra project/feature from Google Sheet test cases, reusing a recorded base flow as the selector source. Use when the user runs "/gen-tests <project> <feature>", asks to generate or regenerate UI tests for a feature, or after recording a base flow. Query bull-terra through its CLI, especially `bull-terra feature inspect <project> <feature> --json`; do not read SQLite manually. Fixes ONLY selectors/waits/navigation on failure and STOPS on assertion failures — never weakens an assertion.
 ---
 
 # gen-tests — turn sheet test cases into runnable Playwright specs
@@ -13,18 +13,18 @@ follow from that.
 
 ## 1. Gather inputs
 
-**Config — from `data.db` (SQLite) in the project root.** A project has MANY
-environments and MANY features; don't assume one of each.
-```sql
-SELECT id FROM projects WHERE name = '<project>';
-SELECT name, url, is_default FROM environments WHERE project_id = <id>;
-SELECT id, name, sheet_id FROM features WHERE project_id = <id> AND name = '<feature>';
-SELECT name, path FROM recordings WHERE project_id = <id> AND feature_id = <feature_id>
-  ORDER BY CASE WHEN name = 'base' THEN 0 ELSE 1 END, name;
+**Config — from bull-terra CLI JSON, not manual SQLite.** A project has MANY
+environments and MANY features; don't assume one of each. Always start with:
+```bash
+bull-terra feature inspect <project> <feature> --json
 ```
-If the project, feature row, or the feature's `base` recording is missing, STOP and
-tell the user to run `bull-terra project add` / `feature add … --sheet <id>` /
-`record --project <p> --feature <f> --env <e>` first.
+Use that JSON for `stateRoot`, `dbPath`, `feature.sheetId`, `environments`,
+`recordings`, `paths.recordingsDir`, `paths.baseRecording`, and `paths.specFile`.
+Do not run `sqlite3`, write ad-hoc SQL, or inspect `data.db` directly; the CLI is
+the compatibility boundary for migrations and user-level state in `~/.bull-terra`.
+If the command says the project/feature is missing, or `hasBaseRecording` is false,
+STOP and tell the user to run `bull-terra project add` / `feature add … --sheet
+<id>` / `record --project <p> --feature <f> --env <e>` first.
 
 **Test cases — from the feature's own `sheet_id`** via the Google Sheets MCP
 (`terra-mcp` / `kozocom-mcp`). It's 1:1, sheet = feature; there is no "project sheet".
