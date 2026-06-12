@@ -33,7 +33,6 @@ export interface TestView {
 
 export interface FeatureView {
   feature: string;
-  specRelPath: string;
   /** Registered sheet id for this feature (1:1 sheet = feature), if any. */
   sheetId: string | null;
   startPath: string;
@@ -229,7 +228,6 @@ export function buildProjectView(
       const row = featureRows.get(t.feature);
       fv = {
         feature: t.feature,
-        specRelPath: t.specRelPath,
         sheetId: row?.sheet_id ?? null,
         startPath: row?.start_path ?? "/",
         requiresAuth: row?.requires_auth === 1,
@@ -254,7 +252,6 @@ export function buildProjectView(
     if (byFeature.has(f.name)) continue;
     byFeature.set(f.name, {
       feature: f.name,
-      specRelPath: `${project.name}/${f.name}.spec.ts`,
       sheetId: f.sheet_id,
       startPath: f.start_path,
       requiresAuth: f.requires_auth === 1,

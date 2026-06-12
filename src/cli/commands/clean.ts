@@ -15,7 +15,7 @@ function fmtBytes(bytes: number): string {
 }
 
 /**
- * Reclaim disk space from run artifacts (screenshots, videos, traces).
+ * Reclaim disk space from run artifacts (videos, traces).
  * Keeps the newest --keep runs (default 10); run rows and results stay in the
  * DB so history still reads correctly — only the files and links go away.
  */

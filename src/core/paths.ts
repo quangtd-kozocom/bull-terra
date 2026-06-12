@@ -70,7 +70,7 @@ export function legacyEnvAuthStatePath(
   return join(paths.authDir, `${safePathSegment(projectName)}-${safePathSegment(envName)}.json`);
 }
 
-/** recordings/<project>/.runs/run-<id>/ — Playwright artifacts (screenshots, videos, traces) for one run. */
+/** recordings/<project>/.runs/run-<id>/ — Playwright artifacts (videos, traces) for one run. */
 export function runArtifactsDir(paths: ProjectPaths, projectName: string, runId: number): string {
   return join(projectRecordingsDir(paths, projectName), ".runs", `run-${runId}`);
 }

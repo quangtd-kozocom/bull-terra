@@ -145,7 +145,7 @@ function confirmDeleteAllHistory() {
 function confirmDeleteRunArtifacts(runId: number) {
   confirm.require({
     header: "Delete run artifacts",
-    message: `Delete the screenshots/videos/traces of run #${runId} (${formatBytes(artifacts.value.byRun[runId] ?? 0)})? The run's results stay in history.`,
+    message: `Delete the videos/traces of run #${runId} (${formatBytes(artifacts.value.byRun[runId] ?? 0)})? The run's results stay in history.`,
     icon: "pi pi-exclamation-triangle",
     rejectLabel: "Cancel",
     acceptLabel: "Delete artifacts",
@@ -221,7 +221,7 @@ function gateTag(runId: number, testId: string): "regression" | "new" | "flaky" 
         <span
           v-if="artifacts.totalBytes"
           class="tnum font-mono text-[11px] text-ink-3"
-          v-tooltip.left="'Disk used by run screenshots, videos and traces'"
+          v-tooltip.left="'Disk used by run videos and traces'"
         >
           {{ formatBytes(artifacts.totalBytes) }} on disk
         </span>
@@ -353,7 +353,7 @@ function gateTag(runId: number, testId: string): "regression" | "new" | "flaky" 
           severity="danger"
           :disabled="cleaning"
           :aria-label="`Delete artifacts of run #${r.id}`"
-          v-tooltip.left="'Delete this run\'s screenshots/videos/traces'"
+          v-tooltip.left="'Delete this run\'s videos/traces'"
           @click="confirmDeleteRunArtifacts(r.id)"
         />
         </div>
@@ -434,21 +434,6 @@ function gateTag(runId: number, testId: string): "regression" | "new" | "flaky" 
                 class="mt-1.5 max-h-40 overflow-auto rounded-sm border border-fail/30 bg-fail/5 px-3 py-2 font-mono text-[11px] leading-relaxed whitespace-pre-wrap text-fail"
                 >{{ t.error }}</pre
               >
-              <a
-                v-if="t.tracePath && artifactKind(t.tracePath) === 'image'"
-                :href="artifactUrl(t.tracePath)"
-                target="_blank"
-                rel="noreferrer"
-                class="mt-1.5 block w-fit"
-                v-tooltip.top="'Failure screenshot — click to open full size'"
-              >
-                <img
-                  :src="artifactUrl(t.tracePath)"
-                  alt="Failure screenshot"
-                  loading="lazy"
-                  class="max-h-56 rounded-sm border border-line"
-                />
-              </a>
             </li>
           </ul>
         </div>

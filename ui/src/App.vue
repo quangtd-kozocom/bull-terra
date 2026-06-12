@@ -3,7 +3,6 @@ import { computed, onMounted, shallowRef, watch } from "vue";
 import { storeToRefs } from "pinia";
 import { useClipboard, useLocalStorage } from "@vueuse/core";
 import Button from "primevue/button";
-import Checkbox from "primevue/checkbox";
 import ConfirmDialog from "primevue/confirmdialog";
 import Drawer from "primevue/drawer";
 import Select from "primevue/select";
@@ -45,8 +44,8 @@ const confirm = useConfirm();
 const toast = useToast();
 
 const consoleOpen = shallowRef(false);
-/** Record a video of every test in the next run (handed to testers). Sticky per browser. */
-const recordVideo = useLocalStorage("bull-terra:record-video", false);
+/** Test ids the user marked to record a video for on the next run. Sticky per browser. */
+const videoTestIds = useLocalStorage<string[]>("bull-terra:record-video-tests", []);
 const recording = shallowRef(false);
 const recordingPreviewVisible = shallowRef(false);
 const recordingPreviewLoading = shallowRef(false);
@@ -313,17 +312,29 @@ function runFeature(feature: string | undefined) {
     activeTab.value = "environments";
     return;
   }
-  const titles = selected.value.features
+  const runTests = selected.value.features
     .filter((item) => !feature || item.feature === feature)
-    .flatMap((item) => item.tests.map((test) => test.title));
+    .flatMap((item) => item.tests);
+  const titles = runTests.map((test) => test.title);
+  // Only forward video selections for tests actually in this run.
+  const selectedVideo = new Set(videoTestIds.value);
+  const runVideoIds = runTests.filter((t) => selectedVideo.has(t.testId)).map((t) => t.testId);
   start(
     selected.value.name,
     feature,
     activeEnv.value ?? undefined,
     titles,
     projectsStore.refreshSelected,
-    recordVideo.value,
+    runVideoIds,
   );
+}
+
+/** Toggle whether a test case records a video on the next run. */
+function toggleVideo(testId: string) {
+  const next = new Set(videoTestIds.value);
+  if (next.has(testId)) next.delete(testId);
+  else next.add(testId);
+  videoTestIds.value = [...next];
 }
 
 async function stopRun() {
@@ -409,15 +420,6 @@ async function viewAuthState(env: string) {
     showError(error);
   } finally {
     authStateLoading.value = false;
-  }
-}
-
-async function openSpec(specRelPath: string) {
-  // specRelPath is "<project>/<feature>.spec.ts", rooted under tests/gen.
-  try {
-    await api.openFile(`tests/gen/${specRelPath}`);
-  } catch (error) {
-    showError(error);
   }
 }
 
@@ -542,14 +544,6 @@ async function showTrace(path: string) {
           <div class="mb-3 mt-6 flex items-center justify-between">
             <span class="label text-ink-3">features</span>
             <div class="flex items-center gap-2">
-              <label
-                class="mr-1 flex cursor-pointer items-center gap-1.5 font-mono text-[11px] text-ink-2"
-                v-tooltip.top="'Record a video of every test in the run — saved per run under recordings/<project>/.runs/ for your tester'"
-              >
-                <Checkbox v-model="recordVideo" binary aria-label="Record video of runs" />
-                <i class="pi pi-video text-[11px]" />
-                record video
-              </label>
               <Button
                 label="Add feature"
                 icon="pi pi-plus"
@@ -576,6 +570,7 @@ async function showTrace(path: string) {
               :live-status="run.liveStatus"
               :running="run.running"
               :active-title="run.active"
+              :video-test-ids="videoTestIds"
               @run="(name) => runFeature(name)"
               @gen="copyGen"
               @record="(name, recName) => recordFeature(name, recName)"
@@ -588,7 +583,7 @@ async function showTrace(path: string) {
               @trace="showTrace"
               @delete-test="confirmDeleteTest"
               @delete-tests="confirmDeleteTests"
-              @open-spec="openSpec"
+              @toggle-video="toggleVideo"
             />
 
             <div

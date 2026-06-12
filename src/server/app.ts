@@ -352,7 +352,7 @@ export function createApp(opts: ServerOptions): Hono {
     return c.json(buildProjectView(db, paths, p, c.req.query("env")));
   });
 
-  // Disk usage of run artifacts (screenshots/videos/traces), per run + total.
+  // Disk usage of run artifacts (videos/traces), per run + total.
   app.get("/api/projects/:name/artifacts", (c) => {
     const p = getProjectOr404(c.req.param("name"));
     if (!p) return c.json({ error: "not found" }, 404);
@@ -538,7 +538,8 @@ export function createApp(opts: ServerOptions): Hono {
       if (error) return c.json({ error }, 400);
     }
 
-    const video = c.req.query("video") === "1";
+    // Per-test "record video" selection (repeated ?videoTest=<testId>).
+    const videoTestIds = c.req.queries("videoTest") ?? [];
 
     return streamSSE(c, async (stream) => {
       const send = (e: RunEvent) =>
@@ -547,7 +548,7 @@ export function createApp(opts: ServerOptions): Hono {
       stream.onAbort(() => {
         runs.stop();
       });
-      await runs.run(db, paths, p, env, features.length ? features : undefined, send, video);
+      await runs.run(db, paths, p, env, features.length ? features : undefined, send, videoTestIds);
     });
   });
 
@@ -682,25 +683,7 @@ export function createApp(opts: ServerOptions): Hono {
     return c.json(rec);
   });
 
-  // Open a project file (e.g. a generated spec) in the OS default editor.
-  app.post("/api/open", async (c) => {
-    const body = await c.req.json<{ path: string }>().catch(() => null);
-    if (!body?.path) return c.json({ error: "path is required" }, 400);
-    const abs = join(paths.root, body.path);
-    if (!abs.startsWith(paths.root)) return c.json({ error: "path escapes project root" }, 400);
-    if (!existsSync(abs)) return c.json({ error: "file not found" }, 404);
-    const opener =
-      process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
-    spawn(opener, [abs], {
-      cwd: paths.root,
-      stdio: "ignore",
-      detached: true,
-      shell: process.platform === "win32",
-    }).unref();
-    return c.json({ ok: true });
-  });
-
-  // Serve a run artifact (failure screenshot, video, trace zip) inline.
+  // Serve a run artifact (video, trace zip) inline.
   // Only run-artifact locations are reachable: recordings/<p>/.runs/ for current
   // runs, test-results/ for runs recorded before the per-project layout.
   app.get("/api/artifact", (c) => {

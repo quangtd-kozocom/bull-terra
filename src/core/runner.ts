@@ -16,10 +16,15 @@ export interface RunOptions {
   signal?: AbortSignal;
   /** Extra env vars injected into the Playwright process (BASE_URL, creds, storageState…). */
   extraEnv?: Record<string, string | undefined>;
-  /** Playwright artifact output dir for this run (screenshots, videos, traces). */
+  /** Playwright artifact output dir for this run (videos, traces). */
   outputDir?: string;
   /** Record a video of every test (not just failures) so testers can replay the steps. */
   video?: boolean;
+  /**
+   * Record video only for these test ids, pruning every other test's video once
+   * the run finishes. Lets the dashboard capture just the cases a tester picked.
+   */
+  videoTestIds?: string[];
 }
 
 export interface RunOutcome {
@@ -45,7 +50,11 @@ function symbolToStatus(sym: string): TestStatus {
  * parsed per-test results from the JSON reporter.
  */
 export function runSpecs(opts: RunOptions): Promise<RunOutcome> {
-  const { projectRoot, specsDir, features, onEvent, signal, extraEnv, outputDir, video } = opts;
+  const { projectRoot, specsDir, features, onEvent, signal, extraEnv, outputDir, video, videoTestIds } =
+    opts;
+  // A non-empty selection records every test's video, then prunes all but these.
+  const keepVideoFor = videoTestIds && videoTestIds.length ? new Set(videoTestIds) : null;
+  const recordVideo = video === true || keepVideoFor !== null;
   const jsonDir = mkdtempSync(join(tmpdir(), "bull-terra-"));
   const jsonPath = join(jsonDir, "report.json");
 
@@ -75,7 +84,7 @@ export function runSpecs(opts: RunOptions): Promise<RunOutcome> {
         ...extraEnv,
         PLAYWRIGHT_JSON_OUTPUT_NAME: jsonPath,
         // Read by the project's playwright.config.ts to switch video to "on".
-        ...(video ? { BULL_TERRA_VIDEO: "on" } : {}),
+        ...(recordVideo ? { BULL_TERRA_VIDEO: "on" } : {}),
         FORCE_COLOR: "0",
       },
       shell: process.platform === "win32",
@@ -118,6 +127,7 @@ export function runSpecs(opts: RunOptions): Promise<RunOutcome> {
       } finally {
         rmSync(jsonDir, { recursive: true, force: true });
       }
+      if (keepVideoFor) pruneUnselectedVideos(results, keepVideoFor, projectRoot, onEvent);
       resolvePromise({ results, exitCode: code ?? 1, aborted });
     });
   });
@@ -179,10 +189,7 @@ export function parseJsonReport(
       const status = (last?.status ?? "failed") as TestStatus;
       const errMsg =
         last?.error?.message ?? last?.errors?.map((e) => e.message).filter(Boolean).join("\n") ?? null;
-      const trace =
-        last?.attachments?.find((a) => a.name === "trace")?.path ??
-        last?.attachments?.find((a) => a.name === "screenshot")?.path ??
-        null;
+      const trace = last?.attachments?.find((a) => a.name === "trace")?.path ?? null;
       const video = last?.attachments?.find((a) => a.name === "video")?.path ?? null;
       out.push({
         testId: makeTestId(specRelPath, spec.title),
@@ -200,6 +207,24 @@ export function parseJsonReport(
 
   for (const suite of report.suites ?? []) visit(suite);
   return out;
+}
+
+/** Delete the videos of tests the user didn't pick, so only selected cases keep one. */
+function pruneUnselectedVideos(
+  results: ParsedTestResult[],
+  keep: Set<string>,
+  projectRoot: string,
+  onEvent?: (e: RunnerEvent) => void,
+): void {
+  for (const r of results) {
+    if (!r.videoPath || keep.has(r.testId)) continue;
+    try {
+      rmSync(resolve(projectRoot, r.videoPath), { force: true });
+    } catch (err) {
+      onEvent?.({ type: "stderr", line: `Could not prune video: ${(err as Error).message}` });
+    }
+    r.videoPath = null;
+  }
 }
 
 // eslint-disable-next-line no-control-regex

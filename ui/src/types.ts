@@ -26,7 +26,6 @@ export interface TestView {
 
 export interface FeatureView {
   feature: string;
-  specRelPath: string;
   sheetId: string | null;
   startPath: string;
   requiresAuth: boolean;
@@ -122,7 +121,7 @@ export interface ScreencastView {
   at: string;
 }
 
-/** Disk usage of run artifacts (screenshots/videos/traces). */
+/** Disk usage of run artifacts (videos/traces). */
 export interface ArtifactStatsView {
   totalBytes: number;
   byRun: Record<number, number>;

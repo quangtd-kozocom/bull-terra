@@ -165,7 +165,7 @@ export const api = {
       `/api/projects/${enc(name)}/screencasts?limit=${limit}${env ? `&env=${enc(env)}` : ""}`,
     ).then((r) => json<ScreencastView[]>(r)),
 
-  // run artifacts (screenshots / videos / traces on disk)
+  // run artifacts (videos / traces on disk)
   artifactStats: (name: string) =>
     fetch(`/api/projects/${enc(name)}/artifacts`).then((r) => json<ArtifactStatsView>(r)),
 
@@ -181,8 +181,6 @@ export const api = {
 
   showTrace: (path: string) => post("/api/trace", { path }).then((r) => json(r)),
 
-  openFile: (path: string) => post("/api/open", { path }).then((r) => json(r)),
-
   stopRun: () => fetch("/api/run/stop", { method: "POST" }).then((r) => json(r)),
 };
 
@@ -194,13 +192,13 @@ export function streamRun(
   name: string,
   feature: string | undefined,
   env: string | undefined,
-  video: boolean,
+  videoTestIds: string[],
   onEvent: (e: RunEvent) => void,
 ): () => void {
   const qs = new URLSearchParams();
   if (feature) qs.set("feature", feature);
   if (env) qs.set("env", env);
-  if (video) qs.set("video", "1");
+  for (const id of videoTestIds) qs.append("videoTest", id);
   const suffix = qs.toString() ? `?${qs}` : "";
   const es = new EventSource(`/api/projects/${enc(name)}/run${suffix}`);
   const handle = (ev: MessageEvent) => {

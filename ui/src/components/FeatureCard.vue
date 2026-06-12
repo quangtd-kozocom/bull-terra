@@ -15,6 +15,8 @@ const props = defineProps<{
   liveStatus: Record<string, string>;
   running: boolean;
   activeTitle: string | null;
+  /** Test ids marked to record a video for on the next run. */
+  videoTestIds: string[];
 }>();
 
 const emit = defineEmits<{
@@ -30,8 +32,11 @@ const emit = defineEmits<{
   (e: "trace", path: string): void;
   (e: "deleteTest", feature: string, title: string): void;
   (e: "deleteTests", feature: string, titles: string[]): void;
-  (e: "openSpec", specRelPath: string): void;
+  (e: "toggleVideo", testId: string): void;
 }>();
+
+/** True when this test is marked for video recording on the next run. */
+const recordsVideo = (testId: string) => props.videoTestIds.includes(testId);
 
 /** Google Sheets deep-link for the linked sheet, if any. */
 const sheetUrl = computed(() =>
@@ -363,6 +368,20 @@ function recordNamed() {
               video ↗
             </a>
 
+            <label
+              class="flex shrink-0 cursor-pointer items-center gap-1 font-mono text-[11px] transition"
+              :class="recordsVideo(t.testId) ? 'text-accent' : 'text-ink-3 hover:text-accent'"
+              v-tooltip.top="'Record a video of this test case on the next run'"
+            >
+              <Checkbox
+                :model-value="recordsVideo(t.testId)"
+                binary
+                :aria-label="`Record video for ${t.title}`"
+                @update:model-value="emit('toggleVideo', t.testId)"
+              />
+              <i class="pi pi-video text-[11px]" />
+            </label>
+
             <button
               class="shrink-0 font-mono text-[11px] text-ink-3 transition hover:text-fail disabled:cursor-not-allowed disabled:opacity-40"
               title="Delete this test case from the spec file"
@@ -557,18 +576,6 @@ function recordNamed() {
           <i class="pi pi-compass text-[11px] text-ink-3" />
           <span class="max-w-56 truncate">{{ feature.startPath }}</span>
         </span>
-
-        <!-- spec file -->
-        <button
-          type="button"
-          class="flex items-center gap-1.5 rounded-sm border border-line-strong bg-card px-2 py-1 font-mono text-[11px] text-ink-2 transition hover:border-accent hover:text-accent"
-          v-tooltip.top="'Open spec file in your editor'"
-          @click="emit('openSpec', feature.specRelPath)"
-        >
-          <i class="pi pi-file text-[11px]" />
-          <span class="max-w-56 truncate">{{ feature.specRelPath }}</span>
-          <i class="pi pi-external-link text-[10px] opacity-70" />
-        </button>
 
         <!-- auth requirement -->
         <span

@@ -5,7 +5,7 @@ import { runArtifactsDir, projectRecordingsDir, type ProjectPaths } from "./path
 import type { Project } from "./types.js";
 
 /**
- * Run-artifact bookkeeping: screenshots/videos/traces accumulate fast, so the
+ * Run-artifact bookkeeping: videos/traces accumulate fast, so the
  * dashboard and `bull-terra clean` need per-run sizes and safe deletion. Covers
  * both eras: recordings/<project>/.runs/run-<id>/ (current) and loose files
  * under test-results/ (runs recorded before the per-project layout).

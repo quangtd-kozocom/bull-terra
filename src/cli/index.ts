@@ -75,7 +75,7 @@ program
 
 program
   .command("clean")
-  .description("Delete run artifacts (screenshots/videos/traces) to reclaim disk space")
+  .description("Delete run artifacts (videos/traces) to reclaim disk space")
   .option("--project <name>", "project to clean (defaults to the only registered project)")
   .option("--keep <n>", "keep the newest N runs' artifacts", "10")
   .option("--dry-run", "report what would be deleted without touching disk")

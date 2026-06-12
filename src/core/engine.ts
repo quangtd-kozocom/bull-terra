@@ -22,8 +22,10 @@ export interface ExecuteOptions {
   features?: string[];
   onEvent?: (e: RunEvent) => void;
   signal?: AbortSignal;
-  /** Record a video of every test so the run can be handed to testers. */
+  /** Record a video of every test so the run can be handed to testers (CLI --video). */
   video?: boolean;
+  /** Dashboard per-test selection: record video only for these test ids. */
+  videoTestIds?: string[];
 }
 
 export interface ExecuteResult {
@@ -62,7 +64,7 @@ export function buildRunEnv(
  * promote baselines, finish the run. Shared by the CLI gate and the dashboard.
  */
 export async function executeRun(opts: ExecuteOptions): Promise<ExecuteResult> {
-  const { db, project, env, paths, specsDir, features, onEvent, signal, video } = opts;
+  const { db, project, env, paths, specsDir, features, onEvent, signal, video, videoTestIds } = opts;
   const featureLabel = features && features.length === 1 ? features[0] : null;
   const run = db.startRun(project.id, env.id, featureLabel);
   onEvent?.({ type: "run-start", runId: run.id, feature: featureLabel, env: env.name });
@@ -73,10 +75,11 @@ export async function executeRun(opts: ExecuteOptions): Promise<ExecuteResult> {
     features,
     signal,
     extraEnv: buildRunEnv(paths, project, env),
-    // Artifacts (screenshots, videos, traces) live with the project's assets,
-    // grouped per run so a whole run can be zipped and handed to a tester.
+    // Artifacts (videos, traces) live with the project's assets, grouped per run
+    // so a whole run can be zipped and handed to a tester.
     outputDir: runArtifactsDir(paths, project.name, run.id),
     video,
+    videoTestIds,
     onEvent: (e) => onEvent?.(e),
   });
 
