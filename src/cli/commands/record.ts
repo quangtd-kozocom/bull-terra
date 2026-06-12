@@ -3,7 +3,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { authRequirementError, authStateInfo, featureStartUrl } from "../../core/auth.js";
 import { featureRecordingPath, projectRecordingsDir, safePathSegment } from "../../core/paths.js";
-import { chromiumInstalled, resolvePlaywrightCli } from "../../core/playwright.js";
+import { chromiumInstalled, codegenViewportArgs, resolvePlaywrightCli } from "../../core/playwright.js";
 import { c, CliError, openDb, resolvePaths, resolveEnvironment, resolveProject } from "../util.js";
 
 export interface RecordFlags {
@@ -76,6 +76,7 @@ export function recordCommand(flags: RecordFlags): Promise<void> {
         ...cli.prefix,
         "codegen",
         url,
+        ...codegenViewportArgs(),
         ...(auth.exists ? ["--load-storage", auth.path] : []),
         "--output",
         outPath,

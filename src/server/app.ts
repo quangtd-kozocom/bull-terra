@@ -32,7 +32,7 @@ import {
   safePathSegment,
   type ProjectPaths,
 } from "../core/paths.js";
-import { chromiumInstalled, requirePlaywrightTest, resolvePlaywrightCli } from "../core/playwright.js";
+import { chromiumInstalled, codegenViewportArgs, requirePlaywrightTest, resolvePlaywrightCli } from "../core/playwright.js";
 import { normalizeSecretVars } from "../core/secret-vars.js";
 import type { Environment, RunEvent } from "../core/types.js";
 import { RunManager } from "./runManager.js";
@@ -630,6 +630,7 @@ export function createApp(opts: ServerOptions): Hono {
           ...cli.prefix,
           "codegen",
           opts.url,
+          ...codegenViewportArgs(),
           ...storageArgs,
           "--output",
           opts.outPath,

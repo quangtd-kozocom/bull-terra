@@ -20,6 +20,13 @@ export interface PlaywrightCli {
   viaNpx: boolean;
 }
 
+const CODEGEN_VIEWPORT_SIZE = "1600, 1000";
+
+/** Make the interactive recorder open with a large, desktop-like viewport. */
+export function codegenViewportArgs(): string[] {
+  return ["--viewport-size", CODEGEN_VIEWPORT_SIZE];
+}
+
 /** Walk up from a resolved module file to the package root (nearest package.json). */
 function packageRoot(entry: string): string | null {
   let dir = dirname(entry);
