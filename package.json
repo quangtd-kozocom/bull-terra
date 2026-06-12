@@ -1,6 +1,6 @@
 {
   "name": "bull-terra",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Local, generic UI-testing harness: turn Google Sheet test cases into runnable Playwright tests with a live dashboard and a regression-aware CLI gate.",
   "type": "module",
   "license": "MIT",
